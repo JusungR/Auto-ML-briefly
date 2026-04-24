@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto_ml"
+version = "0.1.0"
+description = "Auto-ML library for binary classification: preprocess, fit, report, and schedule scoring."
+requires-python = ">=3.10,<3.11"
+authors = [{ name = "JusungR" }]
+readme = "README.md"
+license = { text = "Proprietary" }
+dependencies = [
+    "numpy>=1.24,<2.0",
+    "pandas>=2.0,<3.0",
+    "pyarrow>=14.0",
+    "scikit-learn>=1.3,<2.0",
+    "lightgbm>=4.1,<5.0",
+    "xgboost>=2.0,<3.0",
+    "catboost>=1.2,<2.0",
+    "matplotlib>=3.7,<4.0",
+    "jinja2>=3.1,<4.0",
+    "weasyprint>=60.0",
+    "pyyaml>=6.0",
+    "joblib>=1.3",
+]
+
+[project.scripts]
+auto-ml-train = "auto_ml.pipeline:cli_train"
+auto-ml-score = "auto_ml.scoring.runner:cli_score"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["auto_ml*"]
+
+[tool.setuptools.package-data]
+"auto_ml.reporting" = ["templates/*.j2"]

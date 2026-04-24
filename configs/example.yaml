@@ -1,0 +1,69 @@
+# Auto-ML 예시 설정
+# - 운영 시에는 본 파일을 복사한 뒤 데이터 경로/컬럼 명만 바꿔 사용한다.
+# - 모든 키는 auto_ml/config.py 의 dataclass 와 1:1 대응한다.
+
+# ==== 데이터 ====================================================
+train_data_path: ./data/train.parquet
+target_column: target
+# feature_columns: null 이면 target / id_columns 제외 전부 사용
+feature_columns: null
+id_columns:
+  - user_id
+categorical_columns:
+  - gender
+  - device
+
+# ==== 산출물 저장 위치 ===========================================
+artifact_dir: ./artifacts/models
+
+# ==== 전처리: 1) 결측 → 2) 이상치 → 3) 스케일링 ===================
+preprocessing:
+  # 1) 결측 처리
+  numeric_null_strategy: median           # median | mean | constant
+  numeric_null_fill_value: 0.0
+  categorical_null_strategy: most_frequent  # most_frequent | constant
+  categorical_null_fill_value: MISSING
+
+  # 2) 이상치 처리 (수치형)
+  outlier_method: iqr                     # iqr | zscore | none
+  outlier_iqr_multiplier: 1.5
+  outlier_zscore_threshold: 3.0
+  outlier_action: clip                    # clip | null_then_impute
+
+  # 3) 스케일링 (수치형)
+  scaling_method: standard                # standard | minmax | robust | none
+
+# ==== 학습 ======================================================
+training:
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 42
+  early_stopping_rounds: 50
+  primary_metric: roc_auc                 # roc_auc | pr_auc | f1 | accuracy
+
+# ==== 모델 (3개 동시 학습 후 best 선정) ===========================
+models:
+  lgbm:
+    enabled: true
+    params: {}                            # LightGBM 원본 파라미터
+  xgb:
+    enabled: true
+    params: {}
+  catboost:
+    enabled: true
+    params: {}
+
+# ==== 리포트 ====================================================
+reporting:
+  output_dir: ./artifacts/reports
+  generate_html: true
+  generate_pdf: true
+  title: Auto-ML Binary Classification Report
+
+# ==== 주기 스코어링 =============================================
+scoring:
+  input_path: ./data/score_input.parquet
+  output_path: ./artifacts/scores/scores.parquet
+  id_columns:
+    - user_id
+  threshold: 0.5

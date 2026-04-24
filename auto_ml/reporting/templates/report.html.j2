@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>{{ title }}</title>
+<style>
+  @page { size: A4; margin: 18mm; }
+  body { font-family: "Helvetica", "Arial", "Apple SD Gothic Neo", sans-serif; color: #222; line-height: 1.45; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin: 16px 0 6px; color: #444; }
+  .meta { font-size: 11px; color: #555; margin-bottom: 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: right; }
+  th { background: #f4f4f4; text-align: center; }
+  td.left, th.left { text-align: left; }
+  .best { background: #e7f5ff; font-weight: bold; }
+  .chart { margin: 10px 0 18px; }
+  .chart img { max-width: 100%; }
+  .grid { display: flex; flex-wrap: wrap; gap: 12px; }
+  .grid .chart { flex: 1 1 45%; }
+  .small { font-size: 10px; color: #777; }
+</style>
+</head>
+<body>
+
+<h1>{{ title }}</h1>
+<div class="meta">
+  생성 시각: {{ generated_at }} ·
+  best 모델: <strong>{{ best_model }}</strong> ({{ primary_metric }} = {{ '%.4f'|format(best_score) }}) ·
+  학습 행 수: {{ n_train }} · holdout 행 수: {{ n_holdout }} · feature 수: {{ n_features }}
+</div>
+
+<h2>1. 모델 비교 (holdout 기준)</h2>
+<table>
+  <thead>
+    <tr>
+      <th class="left">model</th>
+      {% for m in metric_names %}<th>{{ m }}</th>{% endfor %}
+      <th>best_iter (avg)</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in comparison_rows %}
+    <tr class="{% if row.name == best_model %}best{% endif %}">
+      <td class="left">{{ row.name }}</td>
+      {% for m in metric_names %}<td>{{ '%.4f'|format(row.metrics[m]) }}</td>{% endfor %}
+      <td>{{ row.best_iter_avg if row.best_iter_avg is not none else '-' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>2. CV(OOF) 비교</h2>
+<table>
+  <thead>
+    <tr>
+      <th class="left">model</th>
+      {% for m in metric_names %}<th>{{ m }}</th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in cv_rows %}
+    <tr class="{% if row.name == best_model %}best{% endif %}">
+      <td class="left">{{ row.name }}</td>
+      {% for m in metric_names %}<td>{{ '%.4f'|format(row.metrics[m]) }}</td>{% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>3. 곡선 비교</h2>
+<div class="grid">
+  <div class="chart">
+    <h3>ROC</h3>
+    <img src="{{ roc_chart }}" alt="ROC" />
+  </div>
+  <div class="chart">
+    <h3>Precision-Recall</h3>
+    <img src="{{ pr_chart }}" alt="PR" />
+  </div>
+</div>
+
+<h2>4. Best 모델 상세 ({{ best_model }})</h2>
+<div class="chart">
+  <h3>Feature Importance (top {{ top_features }})</h3>
+  <img src="{{ importance_chart }}" alt="Feature Importance" />
+</div>
+<div class="chart">
+  <h3>Score Distribution by Label</h3>
+  <img src="{{ score_dist_chart }}" alt="Score Distribution" />
+</div>
+
+<h3>Confusion Matrix (threshold = 0.5)</h3>
+<table style="width: 40%;">
+  <tr><th></th><th>pred 0</th><th>pred 1</th></tr>
+  <tr><th>true 0</th><td>{{ confusion[0][0] }}</td><td>{{ confusion[0][1] }}</td></tr>
+  <tr><th>true 1</th><td>{{ confusion[1][0] }}</td><td>{{ confusion[1][1] }}</td></tr>
+</table>
+
+<h2>5. 학습 설정 요약</h2>
+<table>
+  <tr><th class="left">key</th><th class="left">value</th></tr>
+  {% for k, v in config_summary.items() %}
+    <tr><td class="left">{{ k }}</td><td class="left">{{ v }}</td></tr>
+  {% endfor %}
+</table>
+
+<p class="small">auto_ml v{{ library_version }} · 본 리포트는 자동 생성됨</p>
+</body>
+</html>
