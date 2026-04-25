@@ -1,0 +1,14 @@
+name,type,used
+num_0,continuous,true
+num_1,continuous,true
+num_2,continuous,true
+num_3,continuous,true
+num_4,continuous,true
+num_5,continuous,true
+num_6,continuous,true
+num_7,continuous,true
+num_8,continuous,true
+num_9,continuous,true
+gender,category,true
+device,category,true
+user_id,continuous,false

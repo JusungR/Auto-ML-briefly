@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,9 +30,13 @@ class FeatureSpec:
 
     Attributes:
         name: Parquet 컬럼 이름.
-        type: 컬럼 종류. 다음 중 하나여야 한다 — 다른 값은 ValueError.
+        type: 컬럼 종류 (내부 표기). 다음 중 하나여야 한다 — 다른 값은 ValueError.
             - ``"numeric"``     : 연속형 (int / float). 결측·이상치·스케일링이 적용됨.
             - ``"categorical"`` : 범주형 (문자열 / 코드). 인코딩은 모델 래퍼에서 처리.
+
+    Note:
+        사용자 입력 CSV 에서는 ``continuous`` / ``category`` 로 표기하고,
+        ``load_features_csv`` 가 위 내부 표기로 변환한다.
     """
 
     name: str
@@ -44,6 +49,99 @@ class FeatureSpec:
                 f"FeatureSpec.type must be 'numeric' or 'categorical', got {self.type!r} "
                 f"(feature='{self.name}')"
             )
+
+
+# CSV 입력 표기 ↔ 내부 표기 매핑. 사용자 입력은 CSV 표기를 따른다.
+_CSV_TYPE_TO_INTERNAL = {
+    "continuous": "numeric",
+    "category": "categorical",
+}
+_TRUTHY = {"true", "1", "yes", "y", "t"}
+_FALSY = {"false", "0", "no", "n", "f", ""}
+
+
+def _to_bool(value: Any, *, field_name: str, row_idx: int) -> bool:
+    """CSV 의 used 컬럼 값을 bool 로 파싱한다.
+
+    허용 값 (대소문자 무시): true/false, 1/0, yes/no, y/n, t/f, (빈 문자열 = false).
+    """
+    s = str(value).strip().lower()
+    if s in _TRUTHY:
+        return True
+    if s in _FALSY:
+        return False
+    raise ValueError(
+        f"features CSV row {row_idx}: '{field_name}' must be true/false, got {value!r}"
+    )
+
+
+def load_features_csv(path: str | Path) -> list[FeatureSpec]:
+    """features 정의 CSV 를 읽어 ``used == true`` 인 컬럼들의 ``FeatureSpec`` 리스트를 반환한다.
+
+    CSV 형식 (필수 컬럼: ``name``, ``type``, ``used``):
+
+        name,type,used
+        age,continuous,true
+        gender,category,true
+        income,continuous,false
+
+    Args:
+        path: CSV 경로. CWD 기준 상대경로 또는 절대경로.
+
+    Returns:
+        used == true 인 행만 ``FeatureSpec`` 으로 변환한 리스트
+        (CSV 의 행 순서를 유지).
+
+    Raises:
+        FileNotFoundError: CSV 가 존재하지 않을 때.
+        ValueError: 필수 컬럼 누락 / 알 수 없는 type / 잘못된 used 값 / 결과가 비어있는 경우.
+    """
+    csv_path = Path(path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"features CSV not found: {csv_path}")
+
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError(f"features CSV {csv_path} is empty")
+        required = {"name", "type", "used"}
+        missing = required - set(reader.fieldnames)
+        if missing:
+            raise ValueError(
+                f"features CSV {csv_path} missing columns: {sorted(missing)}"
+            )
+
+        features: list[FeatureSpec] = []
+        seen: set[str] = set()
+        for i, row in enumerate(reader, start=2):  # 1행은 헤더
+            name = (row.get("name") or "").strip()
+            if not name:
+                # 빈 줄(공백 행) 은 조용히 건너뛴다.
+                continue
+            if name in seen:
+                raise ValueError(
+                    f"features CSV row {i}: duplicate name '{name}'"
+                )
+            seen.add(name)
+
+            if not _to_bool(row.get("used"), field_name="used", row_idx=i):
+                continue
+
+            type_str = (row.get("type") or "").strip().lower()
+            if type_str not in _CSV_TYPE_TO_INTERNAL:
+                raise ValueError(
+                    f"features CSV row {i} ('{name}'): type must be one of "
+                    f"{sorted(_CSV_TYPE_TO_INTERNAL.keys())}, got {row.get('type')!r}"
+                )
+            features.append(
+                FeatureSpec(name=name, type=_CSV_TYPE_TO_INTERNAL[type_str])
+            )
+
+    if not features:
+        raise ValueError(
+            f"features CSV {csv_path} contains no rows with used=true"
+        )
+    return features
 
 
 @dataclass
@@ -180,8 +278,12 @@ class AutoMLConfig:
     train_data_path: str = "./data/train.parquet"
     test_data_path: str = "./data/test.parquet"
     target_column: str = "target"
-    # 학습/스코어링에 사용할 컬럼을 (이름, 타입) 형태로 명시한다.
-    # 본 리스트에 없는 Parquet 컬럼은 무시된다 (스코어링 시에도 동일).
+    # 학습/스코어링에 사용할 컬럼 정의를 담은 CSV 경로.
+    # CSV 컬럼: name, type(continuous|category), used(true|false).
+    # used == true 인 행만 실제 학습/스코어링 feature 로 사용된다.
+    features_csv: str = "./configs/features.csv"
+    # ``load_config`` 가 features_csv 를 읽어 자동으로 채운다.
+    # 코드에서 직접 AutoMLConfig 를 만들 때는 본 필드에 list[FeatureSpec] 를 넣어도 된다.
     features: list[FeatureSpec] = field(default_factory=list)
     # 결과(스코어링 출력) 에 식별자로 보존할 컬럼. 학습/예측에는 사용되지 않는다.
     id_columns: list[str] = field(default_factory=list)
@@ -248,14 +350,24 @@ class AutoMLConfig:
 
 
 def load_config(path: str | Path) -> AutoMLConfig:
-    """YAML 파일을 읽어 AutoMLConfig 로 반환한다.
+    """YAML 설정 + features CSV 를 함께 읽어 AutoMLConfig 를 반환한다.
+
+    동작 순서:
+        1) YAML 을 파싱해 AutoMLConfig 를 만든다.
+        2) ``features_csv`` 에 명시된 CSV 를 읽어 ``used == true`` 인 컬럼들로
+           ``cfg.features`` 를 덮어쓴다 (YAML 에서 inline 으로 features 를
+           지정한 경우라도 CSV 가 우선).
 
     Args:
         path: 설정 YAML 경로.
 
     Returns:
-        AutoMLConfig 인스턴스. 빈 파일이면 모든 기본값으로 채워진다.
+        features 까지 채워진 AutoMLConfig 인스턴스.
     """
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
-    return AutoMLConfig.from_dict(raw or {})
+    cfg = AutoMLConfig.from_dict(raw or {})
+    # CSV 경로가 명시된 경우 항상 CSV 가 우선 — 운영 시 CSV 한 파일만 관리하면 된다.
+    if cfg.features_csv:
+        cfg.features = load_features_csv(cfg.features_csv)
+    return cfg

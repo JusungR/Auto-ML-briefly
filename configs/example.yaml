@@ -8,24 +8,10 @@ train_data_path: ./data/train.parquet
 test_data_path: ./data/test.parquet
 target_column: target
 
-# 학습/스코어링에 실제로 사용할 컬럼만 명시한다.
-# 본 리스트에 없는 Parquet 컬럼은 사용하지 않는다.
-#   type:
-#     numeric     — 연속형 (int / float). 결측·이상치·스케일링 적용
-#     categorical — 범주형 (문자열 / 코드). 모델 래퍼에서 자체 인코딩 처리
-features:
-  - { name: num_0,  type: numeric }
-  - { name: num_1,  type: numeric }
-  - { name: num_2,  type: numeric }
-  - { name: num_3,  type: numeric }
-  - { name: num_4,  type: numeric }
-  - { name: num_5,  type: numeric }
-  - { name: num_6,  type: numeric }
-  - { name: num_7,  type: numeric }
-  - { name: num_8,  type: numeric }
-  - { name: num_9,  type: numeric }
-  - { name: gender, type: categorical }
-  - { name: device, type: categorical }
+# 학습/스코어링에 사용할 컬럼 정의 CSV 경로.
+# CSV 컬럼: name, type(continuous|category), used(true|false)
+# used == true 인 행만 실제 feature 로 사용된다.
+features_csv: ./configs/features.csv
 
 # 결과(스코어링 출력) 에 식별자로 보존할 컬럼 — 학습/예측에는 사용되지 않음
 id_columns:

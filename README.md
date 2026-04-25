@@ -34,16 +34,29 @@ auto_ml/
 
 - 학습 / 평가 데이터를 **별도 Parquet 파일** 로 받는다 (`train_data_path`,
   `test_data_path`). 내부에서 임의 분할하지 않는다.
-- 학습/스코어링에 사용할 컬럼은 YAML 의 `features` 에 `(name, type)` 리스트로
-  명시한다. 본 리스트에 없는 컬럼은 무시된다.
-  - `type: numeric`     — 연속형 (int / float). 결측·이상치·스케일링 적용.
-  - `type: categorical` — 범주형 (문자열 / 코드). 모델 래퍼에서 자체 인코딩 처리.
+- 학습/스코어링에 사용할 컬럼은 **CSV 파일** 로 명시한다.
+  YAML 에서 `features_csv` 에 경로를 지정하면 `load_config` 가 자동으로 읽어
+  `cfg.features` 를 채운다.
+
+CSV 형식 (필수 컬럼: `name`, `type`, `used`):
+
+```csv
+name,type,used
+age,continuous,true
+gender,category,true
+income,continuous,true
+internal_score,continuous,false
+```
+
+- `type`
+  - `continuous` — 연속형 (int / float). 결측·이상치·스케일링 적용.
+  - `category`   — 범주형 (문자열 / 코드). 모델 래퍼에서 자체 인코딩 처리.
+- `used`
+  - `true` 인 행만 학습/스코어링에 사용된다 (`false`/공백 → 제외).
+  - 운영 중 컬럼을 켜고 끌 때 코드 변경 없이 본 CSV 만 수정하면 된다.
 
 ```yaml
-features:
-  - { name: age,    type: numeric }
-  - { name: gender, type: categorical }
-  - { name: income, type: numeric }
+features_csv: ./configs/features.csv
 ```
 
 ## 하이퍼파라미터 최적화
