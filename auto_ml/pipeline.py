@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -23,7 +24,7 @@ from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting import ReportBuilder
 from auto_ml.utils.io import ArtifactMetadata, save_artifact
-from auto_ml.utils.logger import get_logger
+from auto_ml.utils.logger import get_logger, setup_logging
 from auto_ml.utils.validation import validate_binary_target, validate_schema
 
 logger = get_logger("pipeline")
@@ -41,10 +42,28 @@ class AutoMLPipeline:
         """전체 파이프라인을 실행한다.
 
         Returns:
-            ``{"artifact": Path, "report_html": Path, "report_pdf": Path}``
-            (포맷 비활성 시 해당 키 누락)
+            ``{"artifact": Path, "report_html": Path, "report_pdf": Path,
+              "log_file": Path}`` (해당 산출물이 비활성이면 키 누락)
         """
         cfg = self.config
+
+        # 0) 로깅 초기화 — 이번 실행 전용 로그 파일을 새로 만든다
+        log_file = setup_logging(
+            log_dir=cfg.logging.log_dir,
+            level=cfg.logging.level,
+            to_stdout=cfg.logging.to_stdout,
+            to_file=cfg.logging.to_file,
+            stage="train",
+        )
+        outputs: dict[str, Path] = {}
+        if log_file is not None:
+            outputs["log_file"] = log_file
+            logger.info("Log file: %s", log_file)
+
+        started_at = time.perf_counter()
+        logger.info("=" * 60)
+        logger.info("Auto-ML training pipeline started")
+        logger.info("=" * 60)
 
         # 1) 데이터 로드 + 검증 ---------------------------------------------
         logger.info("Loading train data: %s", cfg.train_data_path)
@@ -81,6 +100,7 @@ class AutoMLPipeline:
         y_test = df_test[cfg.target_column].astype(int)
         logger.info("Sizes — train=%d, test=%d", len(X_train), len(X_test))
 
+        logger.info("Step 1/3: preprocessing (null -> outlier -> scaling)")
         preprocessor = PreprocessingPipeline(
             numeric_columns=numeric_columns,
             categorical_columns=categorical_columns,
@@ -90,11 +110,12 @@ class AutoMLPipeline:
         X_test_p = preprocessor.transform(X_test)
 
         # 3) 학습 + best 선정 ----------------------------------------------
+        logger.info("Step 2/3: model training (3 algorithms)")
         trainer = Trainer(cfg)
         result: TrainingResult = trainer.train(X_train_p, y_train, X_test_p, y_test)
 
         # 4) 리포트 ---------------------------------------------------------
-        outputs: dict[str, Path] = {}
+        logger.info("Step 3/3: report generation")
         report_paths = ReportBuilder(cfg).build(result)
         if "html" in report_paths:
             outputs["report_html"] = report_paths["html"]
@@ -129,6 +150,20 @@ class AutoMLPipeline:
         save_artifact(artifact_path, preprocessor, best_result.model, metadata)
         outputs["artifact"] = artifact_path
         logger.info("Saved artifact: %s", artifact_path)
+
+        # ----- 종료 요약 ------------------------------------------------
+        elapsed = time.perf_counter() - started_at
+        logger.info("=" * 60)
+        logger.info(
+            "Pipeline completed in %.1fs — best=%s, %s=%.4f",
+            elapsed,
+            result.best_model_name,
+            result.primary_metric,
+            best_result.test_metrics[result.primary_metric],
+        )
+        for key, path in outputs.items():
+            logger.info("  %-12s : %s", key, path)
+        logger.info("=" * 60)
 
         return outputs
 

@@ -10,13 +10,14 @@ cron / Airflow / 사내 스케줄러에서 다음과 같이 호출한다::
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import pandas as pd
 
 from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.scoring.scorer import Scorer
-from auto_ml.utils.logger import get_logger
+from auto_ml.utils.logger import get_logger, setup_logging
 
 logger = get_logger("scoring.runner")
 
@@ -32,6 +33,21 @@ def run_scoring(config: AutoMLConfig) -> Path:
     Returns:
         결과 Parquet 경로.
     """
+    # 이번 실행 전용 로그 파일을 새로 만든다 (stage="score")
+    log_file = setup_logging(
+        log_dir=config.logging.log_dir,
+        level=config.logging.level,
+        to_stdout=config.logging.to_stdout,
+        to_file=config.logging.to_file,
+        stage="score",
+    )
+    started_at = time.perf_counter()
+    logger.info("=" * 60)
+    logger.info("Auto-ML scoring started")
+    logger.info("=" * 60)
+    if log_file is not None:
+        logger.info("Log file: %s", log_file)
+
     artifact_path = Path(config.artifact_dir) / ARTIFACT_FILENAME
     if not artifact_path.exists():
         raise FileNotFoundError(
@@ -58,6 +74,11 @@ def run_scoring(config: AutoMLConfig) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(output_path, index=False)
     logger.info("Wrote scored output: %s (rows=%d)", output_path, len(out))
+
+    elapsed = time.perf_counter() - started_at
+    logger.info("=" * 60)
+    logger.info("Scoring completed in %.1fs", elapsed)
+    logger.info("=" * 60)
     return output_path
 
 

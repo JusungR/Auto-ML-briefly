@@ -267,6 +267,23 @@ class ScoringConfig:
 
 
 @dataclass
+class LoggingConfig:
+    """작업 로그 옵션.
+
+    Attributes:
+        log_dir: 파일 로그 저장 디렉토리.
+        level: 로깅 레벨 (DEBUG / INFO / WARNING / ERROR).
+        to_stdout: 콘솔(stdout) 출력 여부.
+        to_file: 파일 출력 여부. 비활성하면 본 stage 의 파일은 만들어지지 않는다.
+    """
+
+    log_dir: str = "./artifacts/logs"
+    level: str = "INFO"
+    to_stdout: bool = True
+    to_file: bool = True
+
+
+@dataclass
 class AutoMLConfig:
     """파이프라인 전체 설정.
 
@@ -318,6 +335,7 @@ class AutoMLConfig:
     )
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AutoMLConfig":
@@ -342,6 +360,8 @@ class AutoMLConfig:
             data["reporting"] = ReportingConfig(**data["reporting"])
         if "scoring" in data:
             data["scoring"] = ScoringConfig(**data["scoring"])
+        if "logging" in data:
+            data["logging"] = LoggingConfig(**data["logging"])
         if "models" in data:
             data["models"] = {
                 name: ModelConfig(**cfg) for name, cfg in data["models"].items()

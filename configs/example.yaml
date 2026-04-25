@@ -167,3 +167,12 @@ scoring:
   id_columns:
     - user_id
   threshold: 0.5
+
+# ==== 작업 로그 =================================================
+# 실행마다 stage(train|score) 별 별도 로그 파일이 ``log_dir`` 에 생성된다.
+# 파일명: <stage>_<YYYYMMDD>_<HHMMSS>.log
+logging:
+  log_dir: ./artifacts/logs
+  level: INFO                               # DEBUG | INFO | WARNING | ERROR
+  to_stdout: true
+  to_file: true

@@ -132,6 +132,30 @@ auto-ml-score --config configs/example.yaml
 전체 옵션은 `configs/example.yaml` 참고. 모든 키는
 `auto_ml/config.py` 의 dataclass 와 1:1 대응한다.
 
+## 작업 로그
+
+실행마다 stage(`train` / `score`) 별 별도 로그 파일이 자동 생성된다.
+
+```
+artifacts/logs/
+├── train_20260425_143052.log
+└── score_20260425_180001.log
+```
+
+설정 (`configs/example.yaml` 의 `logging` 섹션):
+
+```yaml
+logging:
+  log_dir: ./artifacts/logs
+  level: INFO          # DEBUG | INFO | WARNING | ERROR
+  to_stdout: true
+  to_file: true
+```
+
+콘솔 출력과 파일 출력은 동시에 활성화 가능하며, `to_file: false` 로 두면
+파일은 만들지 않는다. 각 로그는 시작/종료 마커, 단계별 진행, 모델 튜닝 결과,
+산출물 경로, 총 소요 시간을 포함한다.
+
 ## 운영 메모
 
 - 타깃은 0/1 만 허용 (`utils/validation.py` 가 검증).
