@@ -1,17 +1,35 @@
 # Auto-ML 예시 설정
-# - 운영 시에는 본 파일을 복사한 뒤 데이터 경로/컬럼 명만 바꿔 사용한다.
+# - 운영 시에는 본 파일을 복사한 뒤 데이터 경로 / features / search_space 만 바꿔 사용한다.
 # - 모든 키는 auto_ml/config.py 의 dataclass 와 1:1 대응한다.
 
 # ==== 데이터 ====================================================
+# 학습 / 평가 데이터를 별도 Parquet 파일로 받는다.
 train_data_path: ./data/train.parquet
+test_data_path: ./data/test.parquet
 target_column: target
-# feature_columns: null 이면 target / id_columns 제외 전부 사용
-feature_columns: null
+
+# 학습/스코어링에 실제로 사용할 컬럼만 명시한다.
+# 본 리스트에 없는 Parquet 컬럼은 사용하지 않는다.
+#   type:
+#     numeric     — 연속형 (int / float). 결측·이상치·스케일링 적용
+#     categorical — 범주형 (문자열 / 코드). 모델 래퍼에서 자체 인코딩 처리
+features:
+  - { name: num_0,  type: numeric }
+  - { name: num_1,  type: numeric }
+  - { name: num_2,  type: numeric }
+  - { name: num_3,  type: numeric }
+  - { name: num_4,  type: numeric }
+  - { name: num_5,  type: numeric }
+  - { name: num_6,  type: numeric }
+  - { name: num_7,  type: numeric }
+  - { name: num_8,  type: numeric }
+  - { name: num_9,  type: numeric }
+  - { name: gender, type: categorical }
+  - { name: device, type: categorical }
+
+# 결과(스코어링 출력) 에 식별자로 보존할 컬럼 — 학습/예측에는 사용되지 않음
 id_columns:
   - user_id
-categorical_columns:
-  - gender
-  - device
 
 # ==== 산출물 저장 위치 ===========================================
 artifact_dir: ./artifacts/models
@@ -19,39 +37,135 @@ artifact_dir: ./artifacts/models
 # ==== 전처리: 1) 결측 → 2) 이상치 → 3) 스케일링 ===================
 preprocessing:
   # 1) 결측 처리
-  numeric_null_strategy: median           # median | mean | constant
+  numeric_null_strategy: median             # median | mean | constant
   numeric_null_fill_value: 0.0
   categorical_null_strategy: most_frequent  # most_frequent | constant
   categorical_null_fill_value: MISSING
 
   # 2) 이상치 처리 (수치형)
-  outlier_method: iqr                     # iqr | zscore | none
+  outlier_method: iqr                       # iqr | zscore | none
   outlier_iqr_multiplier: 1.5
   outlier_zscore_threshold: 3.0
-  outlier_action: clip                    # clip | null_then_impute
+  outlier_action: clip                      # clip | null_then_impute
 
   # 3) 스케일링 (수치형)
-  scaling_method: standard                # standard | minmax | robust | none
+  scaling_method: standard                  # standard | minmax | robust | none
 
 # ==== 학습 ======================================================
 training:
-  test_size: 0.2
   cv_folds: 5
   random_state: 42
   early_stopping_rounds: 50
-  primary_metric: roc_auc                 # roc_auc | pr_auc | f1 | accuracy
+  primary_metric: roc_auc                   # roc_auc | pr_auc | f1 | accuracy | precision | recall | ks
+
+# ==== 베이지안 하이퍼파라미터 최적화 (Optuna) ====================
+tuning:
+  enabled: true
+  n_trials: 30                              # 모델당 시도 횟수
+  timeout: null                             # 모델당 최대 탐색 시간(초). null = 제한 없음
+  cv_folds: 3                               # 튜닝 단계 KFold (속도 위해 보통 더 작게)
+  random_state: 42
 
 # ==== 모델 (3개 동시 학습 후 best 선정) ===========================
+# 각 모델은 fixed_params (고정) + search_space (탐색 범위) 으로 구성한다.
+# search_space 가 비어 있으면 해당 모델은 튜닝을 생략하고 fixed_params 만 사용.
 models:
   lgbm:
     enabled: true
-    params: {}                            # LightGBM 원본 파라미터
+    fixed_params:
+      objective: binary
+      metric: auc
+      verbose: -1
+      n_estimators: 2000
+    search_space:
+      learning_rate:
+        type: float
+        low: 0.01
+        high: 0.3
+        log: true
+      num_leaves:
+        type: int
+        low: 15
+        high: 255
+      feature_fraction:
+        type: float
+        low: 0.6
+        high: 1.0
+      bagging_fraction:
+        type: float
+        low: 0.6
+        high: 1.0
+      min_data_in_leaf:
+        type: int
+        low: 10
+        high: 200
+      reg_lambda:
+        type: float
+        low: 1.0e-8
+        high: 10.0
+        log: true
+
   xgb:
     enabled: true
-    params: {}
+    fixed_params:
+      objective: binary:logistic
+      eval_metric: auc
+      tree_method: hist
+      n_estimators: 2000
+    search_space:
+      learning_rate:
+        type: float
+        low: 0.01
+        high: 0.3
+        log: true
+      max_depth:
+        type: int
+        low: 3
+        high: 10
+      subsample:
+        type: float
+        low: 0.6
+        high: 1.0
+      colsample_bytree:
+        type: float
+        low: 0.6
+        high: 1.0
+      min_child_weight:
+        type: float
+        low: 1.0
+        high: 20.0
+      reg_lambda:
+        type: float
+        low: 1.0e-8
+        high: 10.0
+        log: true
+
   catboost:
     enabled: true
-    params: {}
+    fixed_params:
+      loss_function: Logloss
+      eval_metric: AUC
+      iterations: 2000
+      verbose: false
+      allow_writing_files: false
+    search_space:
+      learning_rate:
+        type: float
+        low: 0.01
+        high: 0.3
+        log: true
+      depth:
+        type: int
+        low: 4
+        high: 10
+      l2_leaf_reg:
+        type: float
+        low: 1.0
+        high: 10.0
+      bagging_temperature:
+        type: float
+        low: 0.0
+        high: 1.0
 
 # ==== 리포트 ====================================================
 reporting:

@@ -24,6 +24,29 @@ import yaml
 
 
 @dataclass
+class FeatureSpec:
+    """학습/스코어링에 사용할 단일 컬럼의 정의.
+
+    Attributes:
+        name: Parquet 컬럼 이름.
+        type: 컬럼 종류. 다음 중 하나여야 한다 — 다른 값은 ValueError.
+            - ``"numeric"``     : 연속형 (int / float). 결측·이상치·스케일링이 적용됨.
+            - ``"categorical"`` : 범주형 (문자열 / 코드). 인코딩은 모델 래퍼에서 처리.
+    """
+
+    name: str
+    type: str
+
+    # 명세 외 값이 들어오면 학습 시작 전에 즉시 실패하도록 검증
+    def __post_init__(self) -> None:
+        if self.type not in {"numeric", "categorical"}:
+            raise ValueError(
+                f"FeatureSpec.type must be 'numeric' or 'categorical', got {self.type!r} "
+                f"(feature='{self.name}')"
+            )
+
+
+@dataclass
 class PreprocessingConfig:
     """전처리 단계 옵션.
 
@@ -49,16 +72,35 @@ class PreprocessingConfig:
 
 @dataclass
 class ModelConfig:
-    """단일 모델 활성화/하이퍼파라미터 설정.
+    """단일 모델 활성화 / 하이퍼파라미터 설정.
 
     Attributes:
         enabled: False 로 두면 학습에서 제외된다.
-        params: 모델 라이브러리 원래 파라미터 그대로 전달된다.
-                (예: LGBM 의 ``num_leaves`` 등)
+        fixed_params: 탐색하지 않고 항상 고정으로 적용할 파라미터.
+                       (예: ``objective``, ``metric`` 등 도메인 상 고정값)
+        search_space: 베이지안 최적화 탐색 공간 (Optuna 가 샘플링).
+                       비어 있으면 해당 모델은 튜닝을 생략하고
+                       ``fixed_params`` 만으로 학습한다.
+
+    ``search_space`` 형식 (key 는 모델 라이브러리 원본 파라미터 이름):
+
+        learning_rate:
+          type: float        # float | int | categorical
+          low: 0.01
+          high: 0.3
+          log: true          # 선택 (기본 false). 로그 스케일 탐색 여부
+        num_leaves:
+          type: int
+          low: 15
+          high: 127
+        boosting_type:
+          type: categorical
+          choices: [gbdt, dart]
     """
 
     enabled: bool = True
-    params: dict[str, Any] = field(default_factory=dict)
+    fixed_params: dict[str, Any] = field(default_factory=dict)
+    search_space: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -66,19 +108,37 @@ class TrainingConfig:
     """학습 공통 옵션.
 
     Attributes:
-        test_size: holdout 비율. CV 외에 최종 평가용 hold-out 분리에 사용.
-        cv_folds: StratifiedKFold 분할 수.
+        cv_folds: 최종 OOF 평가용 StratifiedKFold 분할 수.
         random_state: 재현성을 위한 시드.
         early_stopping_rounds: 부스팅 모델 조기종료 라운드 수.
-        primary_metric: 최적 모델을 선택할 때 사용하는 지표.
-                        지원: roc_auc | pr_auc | f1 | accuracy
+        primary_metric: 모델 선택 / 튜닝 목적함수에 사용하는 지표.
+                        지원: roc_auc | pr_auc | f1 | accuracy | precision | recall | ks
     """
 
-    test_size: float = 0.2
     cv_folds: int = 5
     random_state: int = 42
     early_stopping_rounds: int = 50
     primary_metric: str = "roc_auc"
+
+
+@dataclass
+class TuningConfig:
+    """베이지안 하이퍼파라미터 최적화 (Optuna) 옵션.
+
+    Attributes:
+        enabled: False 면 모든 모델에 대해 튜닝을 생략한다.
+                 (모델별로 ``search_space`` 가 비어 있으면 자동으로 생략)
+        n_trials: 모델당 시도 횟수.
+        timeout: 모델당 최대 탐색 시간(초). None 이면 ``n_trials`` 까지 진행.
+        cv_folds: 튜닝 단계의 KFold 분할 수. 보통 최종 CV 보다 작게 잡아 속도를 확보한다.
+        random_state: TPE 샘플러 시드.
+    """
+
+    enabled: bool = True
+    n_trials: int = 30
+    timeout: int | None = None
+    cv_folds: int = 3
+    random_state: int = 42
 
 
 @dataclass
@@ -116,12 +176,29 @@ class AutoMLConfig:
     YAML 을 읽어 본 클래스 인스턴스로 변환한다.
     """
 
-    # 데이터 관련
+    # 데이터 관련 — 학습/평가 데이터셋을 별도 파일로 받는다
     train_data_path: str = "./data/train.parquet"
+    test_data_path: str = "./data/test.parquet"
     target_column: str = "target"
-    feature_columns: list[str] | None = None       # None 이면 target / id 제외 전부 사용
+    # 학습/스코어링에 사용할 컬럼을 (이름, 타입) 형태로 명시한다.
+    # 본 리스트에 없는 Parquet 컬럼은 무시된다 (스코어링 시에도 동일).
+    features: list[FeatureSpec] = field(default_factory=list)
+    # 결과(스코어링 출력) 에 식별자로 보존할 컬럼. 학습/예측에는 사용되지 않는다.
     id_columns: list[str] = field(default_factory=list)
-    categorical_columns: list[str] = field(default_factory=list)
+
+    # ----- 파생 헬퍼 -----------------------------------------------------
+    @property
+    def feature_columns(self) -> list[str]:
+        """``features`` 의 이름 순서대로 반환."""
+        return [f.name for f in self.features]
+
+    @property
+    def numeric_columns(self) -> list[str]:
+        return [f.name for f in self.features if f.type == "numeric"]
+
+    @property
+    def categorical_columns(self) -> list[str]:
+        return [f.name for f in self.features if f.type == "categorical"]
 
     # 산출물 저장 위치
     artifact_dir: str = "./artifacts/models"
@@ -129,6 +206,7 @@ class AutoMLConfig:
     # 하위 설정
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    tuning: TuningConfig = field(default_factory=TuningConfig)
     models: dict[str, ModelConfig] = field(
         default_factory=lambda: {
             "lgbm": ModelConfig(),
@@ -146,10 +224,18 @@ class AutoMLConfig:
         하위 섹션은 각 dataclass 로 한번 더 변환하여 타입 안전성을 확보한다.
         """
         data = dict(data)
+        if "features" in data:
+            # YAML 의 dict 또는 dataclass 인스턴스 모두 허용
+            data["features"] = [
+                f if isinstance(f, FeatureSpec) else FeatureSpec(**f)
+                for f in data["features"]
+            ]
         if "preprocessing" in data:
             data["preprocessing"] = PreprocessingConfig(**data["preprocessing"])
         if "training" in data:
             data["training"] = TrainingConfig(**data["training"])
+        if "tuning" in data:
+            data["tuning"] = TuningConfig(**data["tuning"])
         if "reporting" in data:
             data["reporting"] = ReportingConfig(**data["reporting"])
         if "scoring" in data:

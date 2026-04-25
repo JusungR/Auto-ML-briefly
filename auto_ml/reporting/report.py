@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +20,7 @@ from auto_ml import __version__
 from auto_ml.config import AutoMLConfig
 from auto_ml.models.trainer import TrainingResult
 from auto_ml.reporting import plots
-from auto_ml.reporting.metrics import compute_metrics, confusion
+from auto_ml.reporting.metrics import confusion
 from auto_ml.utils.logger import get_logger
 
 logger = get_logger("report")
@@ -43,11 +42,7 @@ class ReportBuilder:
         )
 
     def build(self, result: TrainingResult) -> dict[str, Path]:
-        """리포트를 생성하고 산출 경로를 dict 로 반환한다.
-
-        Returns:
-            ``{"html": Path, "pdf": Path}`` (해당 포맷이 비활성이면 키가 빠짐)
-        """
+        """리포트를 생성하고 산출 경로를 dict 로 반환한다."""
         out_dir = Path(self.config.reporting.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,18 +69,26 @@ class ReportBuilder:
         # ----- 모델 비교 표 데이터 -----
         comparison_rows = []
         cv_rows = []
+        tuning_rows = []
         for name, mr in result.results.items():
             best_iters = [bi for bi in mr.fold_best_iterations if bi is not None]
             avg_iter = int(np.mean(best_iters)) if best_iters else None
             comparison_rows.append({
                 "name": name,
-                "metrics": mr.holdout_metrics,
+                "metrics": mr.test_metrics,
                 "best_iter_avg": avg_iter,
             })
             cv_rows.append({"name": name, "metrics": mr.cv_metrics})
+            tuning_rows.append({
+                "name": name,
+                "tuned": mr.tuning is not None,
+                "n_trials": mr.tuning.n_trials if mr.tuning else 0,
+                "best_value": mr.tuning.best_value if mr.tuning else None,
+                "params": mr.params,
+            })
 
         # ----- 차트 (ROC / PR / Importance / 분포) -----
-        roc_curves = {n: (result.holdout_y, mr.holdout_proba) for n, mr in result.results.items()}
+        roc_curves = {n: (result.test_y, mr.test_proba) for n, mr in result.results.items()}
         roc_chart = plots.roc_curve_plot(roc_curves)
         pr_chart = plots.pr_curve_plot(roc_curves)
 
@@ -94,13 +97,13 @@ class ReportBuilder:
             best.feature_importance, top_n=TOP_FEATURES
         )
         proba_by_label = {
-            0: best.holdout_proba[result.holdout_y == 0],
-            1: best.holdout_proba[result.holdout_y == 1],
+            0: best.test_proba[result.test_y == 0],
+            1: best.test_proba[result.test_y == 1],
         }
         score_dist_chart = plots.score_distribution_plot(proba_by_label)
 
         # ----- Confusion / 설정 요약 -----
-        cm = confusion(result.holdout_y, best.holdout_proba, threshold=0.5)
+        cm = confusion(result.test_y, best.test_proba, threshold=0.5)
         config_summary = self._summarize_config()
 
         template = self.env.get_template("report.html.j2")
@@ -109,13 +112,14 @@ class ReportBuilder:
             generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
             best_model=result.best_model_name,
             primary_metric=result.primary_metric,
-            best_score=best.holdout_metrics[result.primary_metric],
+            best_score=best.test_metrics[result.primary_metric],
             n_train=len(result.results[next(iter(result.results))].oof_proba),
-            n_holdout=len(result.holdout_y),
+            n_test=len(result.test_y),
             n_features=len(result.feature_columns),
             metric_names=METRIC_NAMES,
             comparison_rows=comparison_rows,
             cv_rows=cv_rows,
+            tuning_rows=tuning_rows,
             roc_chart=roc_chart,
             pr_chart=pr_chart,
             importance_chart=importance_chart,
@@ -131,6 +135,7 @@ class ReportBuilder:
         cfg = self.config
         pp = cfg.preprocessing
         tr = cfg.training
+        tu = cfg.tuning
         return {
             "target_column": cfg.target_column,
             "categorical_columns": ", ".join(cfg.categorical_columns) or "(none)",
@@ -140,11 +145,14 @@ class ReportBuilder:
             "preprocessing.outlier_method": pp.outlier_method,
             "preprocessing.outlier_action": pp.outlier_action,
             "preprocessing.scaling_method": pp.scaling_method,
-            "training.test_size": tr.test_size,
             "training.cv_folds": tr.cv_folds,
             "training.early_stopping_rounds": tr.early_stopping_rounds,
             "training.primary_metric": tr.primary_metric,
             "training.random_state": tr.random_state,
+            "tuning.enabled": tu.enabled,
+            "tuning.n_trials": tu.n_trials,
+            "tuning.cv_folds": tu.cv_folds,
+            "tuning.timeout": tu.timeout,
         }
 
     @staticmethod
@@ -153,7 +161,6 @@ class ReportBuilder:
 
         WeasyPrint 의존성이 무거우므로 import 는 함수 내부에서 수행한다.
         """
-        # 지연 import — HTML-only 모드에서 weasyprint 미설치라도 동작하도록
         from weasyprint import HTML  # type: ignore
 
         HTML(string=html_str).write_pdf(str(pdf_path))
