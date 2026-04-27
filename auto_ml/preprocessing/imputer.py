@@ -92,8 +92,12 @@ class NullImputer(BaseStep):
         for col, value in self._numeric_fills.items():
             if col in out.columns:
                 out[col] = out[col].fillna(value)
-        for col, value in self._categorical_fills.items():
-            if col in out.columns:
-                # object 로 캐스팅해 categorical dtype 의 미등록 카테고리 오류를 회피
-                out[col] = out[col].astype("object").fillna(value)
+        # pandas 2.x 의 fillna 가 결과를 silently downcast 하는 동작이
+        # deprecated 됐다. 우리는 명시적으로 object dtype 을 유지하고 싶으므로
+        # 새 동작(downcast 안 함) 을 option_context 로 강제해 경고를 제거한다.
+        with pd.option_context("future.no_silent_downcasting", True):
+            for col, value in self._categorical_fills.items():
+                if col in out.columns:
+                    # object 로 캐스팅해 categorical dtype 의 미등록 카테고리 오류 회피
+                    out[col] = out[col].astype("object").fillna(value)
         return out

@@ -1,0 +1,108 @@
+# 타이타닉 데이터 (이진분류: survived) 학습/스코어링 설정.
+# - python examples/titanic/prepare_data.py 로 데이터 생성 후 실행
+# - 테스트 시간 단축을 위해 cv_folds / n_trials 를 example.yaml 보다 작게 잡았다.
+
+# ==== 데이터 ====================================================
+train_data_path: ./data/titanic/train.parquet
+test_data_path:  ./data/titanic/test.parquet
+target_column:   survived
+
+features_csv:    ./examples/titanic/features.csv
+
+id_columns:
+  - passenger_id
+
+# ==== 산출물 ====================================================
+artifact_dir: ./artifacts/titanic/models
+
+# ==== 전처리 (1) 결측 → (2) 이상치 → (3) 스케일링 ================
+preprocessing:
+  numeric_null_strategy: median
+  numeric_null_fill_value: 0.0
+  categorical_null_strategy: most_frequent
+  categorical_null_fill_value: MISSING
+  outlier_method: iqr
+  outlier_iqr_multiplier: 1.5
+  outlier_zscore_threshold: 3.0
+  outlier_action: clip
+  scaling_method: standard
+
+# ==== 학습 ======================================================
+training:
+  cv_folds: 3
+  random_state: 42
+  early_stopping_rounds: 30
+  primary_metric: roc_auc
+
+# ==== 베이지안 하이퍼파라미터 최적화 ============================
+tuning:
+  enabled: true
+  n_trials: 10        # 테스트용 — 운영에서는 30+ 권장
+  timeout: null
+  cv_folds: 3
+  random_state: 42
+
+# ==== 모델 ======================================================
+models:
+  lgbm:
+    enabled: true
+    fixed_params:
+      objective: binary
+      metric: auc
+      verbose: -1
+      n_estimators: 500
+    search_space:
+      learning_rate: { type: float, low: 0.01, high: 0.3, log: true }
+      num_leaves:    { type: int,   low: 7,    high: 63 }
+      min_data_in_leaf: { type: int, low: 5,   high: 50 }
+      feature_fraction: { type: float, low: 0.6, high: 1.0 }
+      bagging_fraction: { type: float, low: 0.6, high: 1.0 }
+
+  xgb:
+    enabled: true
+    fixed_params:
+      objective: binary:logistic
+      eval_metric: auc
+      tree_method: hist
+      n_estimators: 500
+    search_space:
+      learning_rate:    { type: float, low: 0.01, high: 0.3, log: true }
+      max_depth:        { type: int,   low: 3,    high: 8 }
+      subsample:        { type: float, low: 0.6,  high: 1.0 }
+      colsample_bytree: { type: float, low: 0.6,  high: 1.0 }
+      min_child_weight: { type: float, low: 1.0,  high: 10.0 }
+
+  catboost:
+    enabled: true
+    fixed_params:
+      loss_function: Logloss
+      eval_metric: AUC
+      iterations: 500
+      verbose: false
+      allow_writing_files: false
+    search_space:
+      learning_rate: { type: float, low: 0.01, high: 0.3, log: true }
+      depth:         { type: int,   low: 4,    high: 8 }
+      l2_leaf_reg:   { type: float, low: 1.0,  high: 10.0 }
+
+# ==== 리포트 (PDF 는 시스템 의존성 회피 위해 비활성) ============
+reporting:
+  output_dir: ./artifacts/titanic/reports
+  generate_html: true
+  generate_pdf: false
+  title: Titanic Auto-ML Report
+
+# ==== 스코어링 ==================================================
+scoring:
+  input_path:  ./data/titanic/score_input.parquet
+  output_path: ./artifacts/titanic/scores/scores.parquet
+  id_columns:
+    - passenger_id
+  threshold: 0.5
+
+# ==== 작업 로그 =================================================
+logging:
+  log_dir: ./artifacts/titanic/logs
+  level: INFO
+  to_stdout: true
+  to_file: true

@@ -22,7 +22,7 @@ import pandas as pd
 from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
-from auto_ml.reporting import ReportBuilder
+from auto_ml.reporting.report import ReportBuilder
 from auto_ml.utils.io import ArtifactMetadata, save_artifact
 from auto_ml.utils.logger import get_logger, setup_logging
 from auto_ml.utils.validation import validate_binary_target, validate_schema

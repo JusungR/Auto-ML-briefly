@@ -1,0 +1,9 @@
+name,type,used
+pclass,category,true
+sex,category,true
+age,continuous,true
+sibsp,continuous,true
+parch,continuous,true
+fare,continuous,true
+embarked,category,true
+passenger_id,continuous,false

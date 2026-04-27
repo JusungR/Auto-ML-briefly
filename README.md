@@ -118,6 +118,25 @@ auto-ml-score --config configs/example.yaml
 
 코드에서 직접 호출하는 예시는 `examples/run_train.py`, `examples/run_score.py` 참고.
 
+### 타이타닉 end-to-end 예시
+
+실제 공개 데이터셋(Titanic, 891 rows) 으로 전체 파이프라인을 검증할 수 있다.
+
+```bash
+# 데이터 준비 (GitHub 에서 1회 다운로드 → data/titanic/{train,test,score_input}.parquet)
+python examples/titanic/prepare_data.py
+
+# 학습 — 산출물: artifacts/titanic/{models,reports,logs}/...
+auto-ml-train --config examples/titanic/config.yaml
+
+# 스코어링 — 산출물: artifacts/titanic/scores/scores.parquet
+auto-ml-score --config examples/titanic/config.yaml
+```
+
+검증 시 약 10초 내외 (Optuna 10 trials × 3 모델 × 3 fold) 에 best 모델 ROC-AUC ≈ 0.86 을
+재현한다. 폐쇄망에서는 `TITANIC_CSV` 환경변수에 사전 배포한 CSV 경로를 지정하면
+`prepare_data.py` 가 네트워크 없이 동일 산출물을 만든다.
+
 ## 폐쇄망 이관
 
 다음 4가지만 옮기면 된다:

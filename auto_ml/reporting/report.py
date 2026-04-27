@@ -19,7 +19,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from auto_ml import __version__
 from auto_ml.config import AutoMLConfig
 from auto_ml.models.trainer import TrainingResult
-from auto_ml.reporting import plots
+from auto_ml.reporting import plots  # 동일 패키지 모듈 — 순환 위험 없음
 from auto_ml.reporting.metrics import confusion
 from auto_ml.utils.logger import get_logger
 
