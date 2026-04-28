@@ -90,3 +90,98 @@ def score_distribution_plot(
     ax.set_title(title)
     ax.legend()
     return _fig_to_base64(fig)
+
+
+def decile_analysis(
+    y_true: np.ndarray, y_proba: np.ndarray, n_bins: int = 10,
+) -> tuple[list[dict], str]:
+    """10-분위(기본) 누적 분포·타겟/비타겟 캡처율·lift 표와 차트를 생성한다.
+
+    점수 내림차순으로 정렬한 뒤 표본을 동일 크기로 ``n_bins`` 등분하여
+    각 분위의 통계와 누적 통계를 계산한다.
+    """
+    y_true = np.asarray(y_true).astype(int)
+    y_proba = np.asarray(y_proba).astype(float)
+    n = len(y_true)
+    order = np.argsort(-y_proba)  # 확률 내림차순
+    y_sorted = y_true[order]
+    p_sorted = y_proba[order]
+
+    pos_total = int(y_sorted.sum())
+    neg_total = n - pos_total
+    pos_total_safe = max(pos_total, 1)
+    neg_total_safe = max(neg_total, 1)
+
+    chunks_y = np.array_split(y_sorted, n_bins)
+    chunks_p = np.array_split(p_sorted, n_bins)
+
+    rows: list[dict] = []
+    cum_count = 0
+    cum_pos = 0
+    cum_neg = 0
+    for i, (yc, pc) in enumerate(zip(chunks_y, chunks_p), start=1):
+        cnt = int(len(yc))
+        if cnt == 0:
+            continue
+        pos = int(yc.sum())
+        neg = cnt - pos
+        cum_count += cnt
+        cum_pos += pos
+        cum_neg += neg
+        cum_count_pct = cum_count / n
+        cum_target_rate = cum_pos / pos_total_safe
+        cum_nontarget_rate = cum_neg / neg_total_safe
+        # 누적 lift = (누적 양성률) / (누적 표본률) — i=1 일 때 top-decile lift
+        lift = (cum_pos / cum_count) / (pos_total / n) if pos_total > 0 else 0.0
+        rows.append({
+            "decile": i,
+            "score_min": float(pc.min()),
+            "score_max": float(pc.max()),
+            "count": cnt,
+            "target": pos,
+            "non_target": neg,
+            "cum_count_pct": float(cum_count_pct),
+            "cum_target_rate": float(cum_target_rate),
+            "cum_nontarget_rate": float(cum_nontarget_rate),
+            "lift": float(lift),
+        })
+
+    chart = _decile_chart(rows)
+    return rows, chart
+
+
+def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> str:
+    """10-분위 누적 타겟/비타겟 캡처율을 gains chart 형태로 그린다.
+
+    좌측 y축: 누적 캡처율(타겟/비타겟). 대각선은 무작위 모델 기준.
+    우측 y축: 분위별 lift (회색 막대).
+    """
+    deciles = [r["decile"] for r in rows]
+    cum_target = [r["cum_target_rate"] for r in rows]
+    cum_nontarget = [r["cum_nontarget_rate"] for r in rows]
+    cum_count_pct = [r["cum_count_pct"] for r in rows]
+    lifts = [r["lift"] for r in rows]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax2 = ax.twinx()
+
+    # lift 막대 (우측 축)
+    ax2.bar(deciles, lifts, color="#cccccc", alpha=0.5, label="cumulative lift")
+    ax2.set_ylabel("Cumulative Lift")
+    ax2.set_ylim(bottom=0)
+
+    # 누적 캡처율 라인 (좌측 축)
+    ax.plot(deciles, cum_target, marker="o", color="#1f77b4", label="cum target rate")
+    ax.plot(deciles, cum_nontarget, marker="s", color="#ff7f0e", label="cum non-target rate")
+    ax.plot(deciles, cum_count_pct, linestyle="--", color="grey", linewidth=1, label="random baseline")
+    ax.set_xlabel("Decile (1 = top 10% by score)")
+    ax.set_ylabel("Cumulative Rate")
+    ax.set_xticks(deciles)
+    ax.set_ylim(0, 1.05)
+    ax.set_title(title)
+
+    # 두 축의 범례를 함께 표시
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc="lower right", fontsize=9)
+    return _fig_to_base64(fig)

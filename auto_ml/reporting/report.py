@@ -26,7 +26,7 @@ from auto_ml.utils.logger import get_logger
 logger = get_logger("report")
 
 # 리포트 표에 노출할 지표 순서
-METRIC_NAMES = ("roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1", "ks")
+METRIC_NAMES = ("roc_auc", "ks", "lift", "accuracy", "precision", "recall", "f1", "pr_auc")
 TOP_FEATURES = 20
 
 
@@ -102,6 +102,9 @@ class ReportBuilder:
         }
         score_dist_chart = plots.score_distribution_plot(proba_by_label)
 
+        # ----- 10-분위 분석 (test set, best 모델) -----
+        decile_rows, decile_chart = plots.decile_analysis(result.test_y, best.test_proba)
+
         # ----- Confusion / 설정 요약 -----
         cm = confusion(result.test_y, best.test_proba, threshold=0.5)
         config_summary = self._summarize_config()
@@ -124,6 +127,8 @@ class ReportBuilder:
             pr_chart=pr_chart,
             importance_chart=importance_chart,
             score_dist_chart=score_dist_chart,
+            decile_chart=decile_chart,
+            decile_rows=decile_rows,
             top_features=TOP_FEATURES,
             confusion=cm.tolist(),
             config_summary=config_summary,

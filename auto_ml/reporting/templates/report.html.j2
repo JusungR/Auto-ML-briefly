@@ -91,6 +91,39 @@
   <img src="{{ score_dist_chart }}" alt="Score Distribution" />
 </div>
 
+<h3>10-분위 분석 (테스트셋, 점수 내림차순)</h3>
+<div class="chart"><img src="{{ decile_chart }}" alt="Decile Analysis" /></div>
+<table>
+  <thead>
+    <tr>
+      <th>decile</th>
+      <th>score range</th>
+      <th>count</th>
+      <th>target</th>
+      <th>non-target</th>
+      <th>cum %</th>
+      <th>cum target rate</th>
+      <th>cum non-target rate</th>
+      <th>lift</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in decile_rows %}
+    <tr>
+      <td>{{ r.decile }}</td>
+      <td>{{ '%.3f'|format(r.score_min) }} ~ {{ '%.3f'|format(r.score_max) }}</td>
+      <td>{{ r.count }}</td>
+      <td>{{ r.target }}</td>
+      <td>{{ r.non_target }}</td>
+      <td>{{ '%.2f'|format(r.cum_count_pct * 100) }}%</td>
+      <td>{{ '%.4f'|format(r.cum_target_rate) }}</td>
+      <td>{{ '%.4f'|format(r.cum_nontarget_rate) }}</td>
+      <td>{{ '%.3f'|format(r.lift) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
 <h3>Confusion Matrix (threshold = 0.5)</h3>
 <table style="width: 40%;">
   <tr><th></th><th>pred 0</th><th>pred 1</th></tr>
