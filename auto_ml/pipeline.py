@@ -3,9 +3,10 @@
 전체 흐름:
     1) Parquet 로드 (train / test 별도 파일) + 스키마/타깃 검증
     2) 전처리 fit_transform (학습) / transform (테스트)
-    3) 3개 모델 학습 (튜닝 → CV → 최종 fit) + best 선정
-    4) HTML / PDF 리포트 생성
-    5) artifact 저장 (preprocessor + best_model + metadata)
+    3) (선택) Stability Selection 변수 선택 — feature_selection.enabled=True 일 때
+    4) 3개 모델 학습 (튜닝 → CV → 최종 fit) + best 선정
+    5) HTML / PDF 리포트 생성
+    6) artifact 저장 (preprocessor + best_model + metadata)
 
 사용:
     >>> from auto_ml import AutoMLPipeline, load_config
@@ -20,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 from auto_ml.config import AutoMLConfig, load_config
+from auto_ml.feature_selection import SelectionResult, StabilitySelector
 from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting.report import ReportBuilder
@@ -100,7 +102,7 @@ class AutoMLPipeline:
         y_test = df_test[cfg.target_column].astype(int)
         logger.info("Sizes — train=%d, test=%d", len(X_train), len(X_test))
 
-        logger.info("Step 1/3: preprocessing (null -> outlier -> scaling)")
+        logger.info("Step 1/4: preprocessing (null -> outlier -> scaling)")
         preprocessor = PreprocessingPipeline(
             numeric_columns=numeric_columns,
             categorical_columns=categorical_columns,
@@ -109,42 +111,82 @@ class AutoMLPipeline:
         X_train_p = preprocessor.fit_transform(X_train)
         X_test_p = preprocessor.transform(X_test)
 
-        # 3) 학습 + best 선정 ----------------------------------------------
-        logger.info("Step 2/3: model training (3 algorithms)")
-        trainer = Trainer(cfg)
-        result: TrainingResult = trainer.train(X_train_p, y_train, X_test_p, y_test)
+        # 3) (선택) 변수 선택 -----------------------------------------------
+        # 변수 선택을 끄면 selected_features = feature_columns 로 두어 이후 단계에서
+        # 통일된 인터페이스(metadata.selected_features) 로 다룬다.
+        selected_features = list(feature_columns)
+        selection: SelectionResult | None = None
+        if cfg.feature_selection.enabled:
+            logger.info(
+                "Step 2/4: stability selection (base=%s, n_subsamples=%d, threshold=%.2f)",
+                cfg.feature_selection.base_estimator,
+                cfg.feature_selection.n_subsamples,
+                cfg.feature_selection.threshold,
+            )
+            selector = StabilitySelector(
+                config=cfg.feature_selection,
+                numeric_columns=numeric_columns,
+                categorical_columns=categorical_columns,
+            )
+            selection = selector.fit_select(X_train_p, y_train)
+            selected_features = selection.selected_features
+            logger.info(
+                "Stability selection kept %d / %d features%s",
+                len(selected_features), len(feature_columns),
+                " (fallback used)" if selection.fallback_used else "",
+            )
+        else:
+            logger.info("Step 2/4: feature selection disabled — using all features")
 
-        # 4) 리포트 ---------------------------------------------------------
-        logger.info("Step 3/3: report generation")
+        X_train_used = X_train_p[selected_features]
+        X_test_used = X_test_p[selected_features]
+
+        # 4) 학습 + best 선정 ----------------------------------------------
+        logger.info("Step 3/4: model training (3 algorithms)")
+        trainer = Trainer(cfg)
+        result: TrainingResult = trainer.train(X_train_used, y_train, X_test_used, y_test)
+
+        # 5) 리포트 ---------------------------------------------------------
+        logger.info("Step 4/4: report generation")
         report_paths = ReportBuilder(cfg).build(result)
         if "html" in report_paths:
             outputs["report_html"] = report_paths["html"]
         if "pdf" in report_paths:
             outputs["report_pdf"] = report_paths["pdf"]
 
-        # 5) artifact 저장 --------------------------------------------------
+        # 6) artifact 저장 --------------------------------------------------
         best_result = result.best
+        extra = {
+            "best_iteration": best_result.model.best_iteration,
+            "fold_best_iterations": best_result.fold_best_iterations,
+            "best_params": best_result.params,
+            "tuning": (
+                {
+                    "best_value": best_result.tuning.best_value,
+                    "n_trials": best_result.tuning.n_trials,
+                }
+                if best_result.tuning is not None
+                else None
+            ),
+        }
+        if selection is not None:
+            extra["feature_selection"] = {
+                "base_estimator": selection.base_estimator,
+                "threshold": selection.threshold,
+                "n_subsamples": selection.n_subsamples,
+                "fallback_used": selection.fallback_used,
+                "frequencies": selection.frequencies,
+            }
         metadata = ArtifactMetadata(
             target_column=cfg.target_column,
             feature_columns=feature_columns,
+            selected_features=selected_features,
             categorical_columns=categorical_columns,
             id_columns=cfg.id_columns,
             model_name=best_result.name,
             primary_metric=cfg.training.primary_metric,
             metric_value=best_result.test_metrics[cfg.training.primary_metric],
-            extra={
-                "best_iteration": best_result.model.best_iteration,
-                "fold_best_iterations": best_result.fold_best_iterations,
-                "best_params": best_result.params,
-                "tuning": (
-                    {
-                        "best_value": best_result.tuning.best_value,
-                        "n_trials": best_result.tuning.n_trials,
-                    }
-                    if best_result.tuning is not None
-                    else None
-                ),
-            },
+            extra=extra,
         )
         artifact_path = Path(cfg.artifact_dir) / ARTIFACT_FILENAME
         save_artifact(artifact_path, preprocessor, best_result.model, metadata)

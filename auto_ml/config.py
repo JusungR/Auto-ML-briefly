@@ -240,6 +240,47 @@ class TuningConfig:
 
 
 @dataclass
+class FeatureSelectionConfig:
+    """전처리 후에 적용하는 변수 선택(Stability Selection) 옵션.
+
+    Meinshausen & Bühlmann (2010) 의 Stability Selection 절차를 따른다:
+        1) 데이터에서 ``subsample_ratio`` 비율로 ``n_subsamples`` 번 부분표본 추출
+        2) 각 부분표본에서 ``base_estimator`` 로 변수 선택 절차 수행
+        3) 변수별 선택 빈도(selection probability) 산출
+        4) ``threshold`` 이상으로 자주 선택된 변수만 최종 채택
+
+    Attributes:
+        enabled: False 면 변수 선택을 건너뛴다 (전체 feature 그대로 학습).
+        base_estimator: 부분표본 단위 선택기. ``"lasso"`` (L1 로지스틱) |
+                        ``"lgbm"`` (LightGBM gain top-K).
+        n_subsamples: 부분표본 추출 횟수 (보통 100~500).
+        subsample_ratio: 각 부분표본 크기 비율.
+        threshold: 최종 채택 임계값 (보통 0.6~0.8).
+        random_state: stratified subsample 추출과 base_estimator 시드.
+        min_selected: threshold 이상 변수가 부족할 때 frequency 상위 N개를
+                      fallback 으로 채택해 학습 입력이 비지 않도록 보장한다.
+        lasso_C: ``base_estimator == "lasso"`` 의 규제 강도(낮을수록 강함).
+        lgbm_top_k: ``base_estimator == "lgbm"`` 에서 부분표본당 상위 K 개 선택.
+        lgbm_n_estimators: 부분표본 학습용 LGBM 트리 수 (가볍게 유지).
+        lgbm_learning_rate: 부분표본 학습용 LGBM 학습률.
+    """
+
+    enabled: bool = False
+    base_estimator: str = "lasso"           # lasso | lgbm
+    n_subsamples: int = 200
+    subsample_ratio: float = 0.5
+    threshold: float = 0.6
+    random_state: int = 42
+    min_selected: int = 1
+    # lasso 전용
+    lasso_C: float = 0.1
+    # lgbm 전용
+    lgbm_top_k: int = 30
+    lgbm_n_estimators: int = 100
+    lgbm_learning_rate: float = 0.1
+
+
+@dataclass
 class ReportingConfig:
     """리포트 산출 옵션. HTML 과 PDF 두 가지를 동일 내용으로 생성한다."""
 
@@ -324,6 +365,7 @@ class AutoMLConfig:
 
     # 하위 설정
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
+    feature_selection: FeatureSelectionConfig = field(default_factory=FeatureSelectionConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     tuning: TuningConfig = field(default_factory=TuningConfig)
     models: dict[str, ModelConfig] = field(
@@ -352,6 +394,8 @@ class AutoMLConfig:
             ]
         if "preprocessing" in data:
             data["preprocessing"] = PreprocessingConfig(**data["preprocessing"])
+        if "feature_selection" in data:
+            data["feature_selection"] = FeatureSelectionConfig(**data["feature_selection"])
         if "training" in data:
             data["training"] = TrainingConfig(**data["training"])
         if "tuning" in data:

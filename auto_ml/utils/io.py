@@ -24,7 +24,11 @@ class ArtifactMetadata:
 
     Attributes:
         target_column: 학습에 사용한 타깃 컬럼 이름.
-        feature_columns: 학습에 사용한 feature 컬럼 순서 (스코어링 시 검증용).
+        feature_columns: 학습 시 전처리에 사용한 feature 컬럼 순서
+                         (스코어링 입력 검증과 preprocessor.transform 입력에 사용).
+        selected_features: 변수 선택 후 모델이 실제로 학습한 컬럼 부분집합.
+                           변수 선택을 끄면 ``feature_columns`` 와 동일하다.
+                           스코어링 시 preprocessor 통과 후 모델 입력으로 좁힐 때 사용.
         categorical_columns: 범주형으로 취급된 컬럼.
         id_columns: 학습에서는 제외했지만 스코어링 결과에 보존할 컬럼.
         model_name: best 로 선정된 모델 이름 (lgbm | xgb | catboost).
@@ -42,6 +46,7 @@ class ArtifactMetadata:
     model_name: str
     primary_metric: str
     metric_value: float
+    selected_features: list[str] = field(default_factory=list)
     trained_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     library_version: str = "0.1.0"
     extra: dict[str, Any] = field(default_factory=dict)

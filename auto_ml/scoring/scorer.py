@@ -78,7 +78,13 @@ class Scorer:
         # 전처리 fit 시점과 동일한 컬럼 순서로 정렬해 일관성 확보
         X = df_filled[feature_cols]
         X_processed = self.preprocessor.transform(X)
-        proba = self.model.predict_proba(X_processed)
+
+        # 학습 시 변수 선택을 거쳤다면 모델 입력은 그 부분집합이어야 한다.
+        # 옛 artifact (selected_features 가 비어있는 경우) 와의 호환을 위해 fallback.
+        selected = list(getattr(self.metadata, "selected_features", []) or feature_cols)
+        X_for_model = X_processed[selected]
+
+        proba = self.model.predict_proba(X_for_model)
         prediction = (proba >= threshold).astype(int)
 
         ids = id_columns if id_columns is not None else list(self.metadata.id_columns)
