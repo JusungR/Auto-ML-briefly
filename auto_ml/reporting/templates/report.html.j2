@@ -131,7 +131,40 @@
   <tr><th>true 1</th><td>{{ confusion[1][0] }}</td><td>{{ confusion[1][1] }}</td></tr>
 </table>
 
-<h2>5. 학습 설정 요약</h2>
+{% if selection %}
+<h2>5. 변수 선택 (Stability Selection)</h2>
+<div class="meta">
+  base estimator: <strong>{{ selection.base_estimator }}</strong> ·
+  부분표본 수: {{ selection.n_subsamples }} ·
+  채택 임계값: {{ '%.2f'|format(selection.threshold) }} ·
+  채택: <strong>{{ selection.n_selected }}</strong> / {{ selection.n_total }}
+  {% if selection.fallback_used %}· <span style="color:#d62728;">(min_selected fallback 발동)</span>{% endif %}
+</div>
+<div class="chart">
+  <h3>선택 빈도 상위 {{ selection.top_n }}개</h3>
+  <img src="{{ selection.chart }}" alt="Selection Frequency" />
+</div>
+<table>
+  <thead>
+    <tr>
+      <th class="left">feature</th>
+      <th>frequency</th>
+      <th>selected</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in selection.rows %}
+    <tr>
+      <td class="left">{{ r.feature }}</td>
+      <td>{{ '%.3f'|format(r.frequency) }}</td>
+      <td>{{ 'O' if r.selected else '-' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>{{ '6' if selection else '5' }}. 학습 설정 요약</h2>
 <table>
   <tr><th class="left">key</th><th class="left">value</th></tr>
   {% for k, v in config_summary.items() %}

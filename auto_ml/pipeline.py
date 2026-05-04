@@ -148,7 +148,7 @@ class AutoMLPipeline:
 
         # 5) 리포트 ---------------------------------------------------------
         logger.info("Step 4/4: report generation")
-        report_paths = ReportBuilder(cfg).build(result)
+        report_paths = ReportBuilder(cfg).build(result, selection=selection)
         if "html" in report_paths:
             outputs["report_html"] = report_paths["html"]
         if "pdf" in report_paths:

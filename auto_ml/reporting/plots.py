@@ -185,3 +185,33 @@ def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> st
     h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, loc="lower right", fontsize=9)
     return _fig_to_base64(fig)
+
+
+def feature_selection_plot(
+    frequencies: dict[str, float],
+    threshold: float,
+    top_n: int = 20,
+    title: str = "Stability Selection Frequency",
+) -> str:
+    """Stability Selection 변수별 선택 빈도(top N) 를 가로 막대로 그린다.
+
+    Args:
+        frequencies: ``{feature_name: selection_probability}`` (0.0~1.0).
+        threshold: 채택 임계값 — 가로 점선으로 표시된다.
+        top_n: 표시할 상위 변수 개수.
+    """
+    items = sorted(frequencies.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    names = [n for n, _ in items][::-1]   # 위쪽이 가장 높은 빈도가 되도록 역순
+    values = [v for _, v in items][::-1]
+    # 채택/미채택을 색으로 구분 — 시각적으로 임계값 위/아래를 즉시 구별
+    colors = ["#1f77b4" if v >= threshold else "#cccccc" for v in values]
+
+    fig, ax = plt.subplots(figsize=(7, max(3, 0.3 * len(names) + 1)))
+    ax.barh(names, values, color=colors)
+    ax.axvline(threshold, color="#d62728", linestyle="--", linewidth=1,
+               label=f"threshold = {threshold:.2f}")
+    ax.set_xlim(0, 1.0)
+    ax.set_xlabel("Selection Probability")
+    ax.set_title(title)
+    ax.legend(loc="lower right", fontsize=9)
+    return _fig_to_base64(fig)

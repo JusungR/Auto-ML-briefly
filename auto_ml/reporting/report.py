@@ -18,6 +18,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from auto_ml import __version__
 from auto_ml.config import AutoMLConfig
+from auto_ml.feature_selection import SelectionResult
 from auto_ml.models.trainer import TrainingResult
 from auto_ml.reporting import plots  # 동일 패키지 모듈 — 순환 위험 없음
 from auto_ml.reporting.metrics import confusion
@@ -28,6 +29,7 @@ logger = get_logger("report")
 # 리포트 표에 노출할 지표 순서
 METRIC_NAMES = ("roc_auc", "ks", "lift", "accuracy", "precision", "recall", "f1", "pr_auc")
 TOP_FEATURES = 20
+TOP_SELECTION_FEATURES = 20  # 변수 선택 빈도 차트/표에 노출할 상위 개수
 
 
 class ReportBuilder:
@@ -41,12 +43,21 @@ class ReportBuilder:
             autoescape=select_autoescape(enabled_extensions=("html",)),
         )
 
-    def build(self, result: TrainingResult) -> dict[str, Path]:
-        """리포트를 생성하고 산출 경로를 dict 로 반환한다."""
+    def build(
+        self,
+        result: TrainingResult,
+        selection: SelectionResult | None = None,
+    ) -> dict[str, Path]:
+        """리포트를 생성하고 산출 경로를 dict 로 반환한다.
+
+        Args:
+            result: 학습 결과 (모델별 metrics, best 모델 등).
+            selection: 변수 선택을 사용했다면 결과 객체. None 이면 해당 섹션은 생략.
+        """
         out_dir = Path(self.config.reporting.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        html_str = self._render_html(result)
+        html_str = self._render_html(result, selection)
 
         outputs: dict[str, Path] = {}
         if self.config.reporting.generate_html:
@@ -64,7 +75,11 @@ class ReportBuilder:
         return outputs
 
     # ------------------------------------------------------------------
-    def _render_html(self, result: TrainingResult) -> str:
+    def _render_html(
+        self,
+        result: TrainingResult,
+        selection: SelectionResult | None = None,
+    ) -> str:
         """Jinja2 템플릿에 컨텍스트를 채워 HTML 문자열을 만든다."""
         # ----- 모델 비교 표 데이터 -----
         comparison_rows = []
@@ -105,6 +120,9 @@ class ReportBuilder:
         # ----- 10-분위 분석 (test set, best 모델) -----
         decile_rows, decile_chart = plots.decile_analysis(result.test_y, best.test_proba)
 
+        # ----- 변수 선택 결과 (활성화된 경우만) -----
+        selection_ctx = self._build_selection_context(selection)
+
         # ----- Confusion / 설정 요약 -----
         cm = confusion(result.test_y, best.test_proba, threshold=0.5)
         config_summary = self._summarize_config()
@@ -130,10 +148,46 @@ class ReportBuilder:
             decile_chart=decile_chart,
             decile_rows=decile_rows,
             top_features=TOP_FEATURES,
+            selection=selection_ctx,
             confusion=cm.tolist(),
             config_summary=config_summary,
             library_version=__version__,
         )
+
+    def _build_selection_context(
+        self, selection: SelectionResult | None,
+    ) -> dict[str, Any] | None:
+        """변수 선택 결과를 템플릿이 바로 쓰도록 가공한다 (None 이면 None 반환)."""
+        if selection is None:
+            return None
+        # 빈도 내림차순 정렬 — 차트 / 표 모두 같은 순서로 노출
+        sorted_freq = sorted(
+            selection.frequencies.items(), key=lambda kv: kv[1], reverse=True,
+        )
+        chart = plots.feature_selection_plot(
+            selection.frequencies,
+            threshold=selection.threshold,
+            top_n=TOP_SELECTION_FEATURES,
+        )
+        rows = [
+            {
+                "feature": name,
+                "frequency": float(freq),
+                "selected": name in selection.selected_features,
+            }
+            for name, freq in sorted_freq[:TOP_SELECTION_FEATURES]
+        ]
+        return {
+            "base_estimator": selection.base_estimator,
+            "n_subsamples": selection.n_subsamples,
+            "threshold": selection.threshold,
+            "n_total": len(selection.frequencies),
+            "n_selected": len(selection.selected_features),
+            "fallback_used": selection.fallback_used,
+            "top_n": TOP_SELECTION_FEATURES,
+            "chart": chart,
+            "rows": rows,
+        }
 
     def _summarize_config(self) -> dict[str, Any]:
         """리포트에 노출할 핵심 설정만 추려 dict 로 만든다."""
