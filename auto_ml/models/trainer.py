@@ -124,6 +124,7 @@ class Trainer:
         name: str,
         X_train: pd.DataFrame,
         y_train: pd.Series,
+        categorical_columns: list[str],
     ) -> tuple[dict[str, Any], TuningResult | None]:
         """튜닝 활성 여부에 따라 모델별 파라미터를 결정한다.
 
@@ -139,7 +140,7 @@ class Trainer:
                 y=y_train,
                 search_space=model_cfg.search_space,
                 fixed_params=model_cfg.fixed_params,
-                categorical_columns=cfg.categorical_columns,
+                categorical_columns=categorical_columns,
             )
             return tuning.best_params, tuning
         # 튜닝 비활성 또는 search_space 미지정 → fixed_params 만 사용
@@ -156,7 +157,15 @@ class Trainer:
     ) -> ModelResult:
         """단일 모델: 튜닝 → CV(OOF) → 최종 fit → 테스트 평가."""
         cfg = self.config
-        params, tuning_result = self._resolve_params(name, X_train, y_train)
+
+        # feature selection 이 컬럼을 줄였을 수 있으므로, 실제 데이터에
+        # 남아 있는 범주형 컬럼만 모델에 전달한다.
+        actual_columns = set(X_train.columns)
+        cat_cols = [c for c in cfg.categorical_columns if c in actual_columns]
+
+        params, tuning_result = self._resolve_params(
+            name, X_train, y_train, cat_cols,
+        )
 
         # ----- CV(OOF) 평가 -------------------------------------------------
         kf = StratifiedKFold(
@@ -176,7 +185,7 @@ class Trainer:
             model = build_model(
                 name=name,
                 params=params,
-                categorical_columns=cfg.categorical_columns,
+                categorical_columns=cat_cols,
                 random_state=cfg.training.random_state + fold_idx,
             )
             model.fit(
@@ -196,7 +205,7 @@ class Trainer:
         final_model = build_model(
             name=name,
             params=params,
-            categorical_columns=cfg.categorical_columns,
+            categorical_columns=cat_cols,
             random_state=cfg.training.random_state,
         )
         final_model.fit(

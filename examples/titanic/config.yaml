@@ -27,6 +27,23 @@ preprocessing:
   outlier_action: clip
   scaling_method: standard
 
+# ==== 변수 선택 (Stability Selection) ============================
+# 전처리 직후, 모델 학습 직전 단계. enabled=false 면 통째로 건너뛴다.
+feature_selection:
+  enabled: true                           # opt-in. 운영 안정화를 위해 기본 false.
+  base_estimator: lasso                     # lasso (L1 logistic) | lgbm (gain top-K)
+  n_subsamples: 50                          # 소규모 데이터(891 rows) 에 맞춰 축소
+  subsample_ratio: 0.7                      # 작은 데이터이므로 비율을 높여 안정성 확보
+  threshold: 0.6                            # 채택 임계값 (보통 0.6~0.8)
+  random_state: 42
+  min_selected: 1                           # 임계값 이상 변수가 부족할 때 fallback 최소 개수
+  # lasso 전용
+  lasso_C: 0.1
+  # lgbm 전용
+  lgbm_top_k: 10                            # 전체 피처 수(7개)에 맞춰 축소
+  lgbm_n_estimators: 100
+  lgbm_learning_rate: 0.1
+
 # ==== 학습 ======================================================
 training:
   cv_folds: 3

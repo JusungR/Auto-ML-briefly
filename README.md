@@ -7,27 +7,31 @@
 
 ```
 auto_ml/
-├── config.py           설정 dataclass + YAML 로더
-├── pipeline.py         학습 파이프라인 (auto-ml-train)
-├── preprocessing/      1) 결측 → 2) 이상치 → 3) 스케일링
-├── models/             LGBM / XGBoost / CatBoost 래퍼 + Trainer
-├── tuning/             Optuna 베이지안 하이퍼파라미터 최적화
-├── reporting/          HTML + PDF 리포트 (동일 내용)
-├── scoring/            배치 스코어링 (auto-ml-score)
-└── utils/              io / logger / validation
+├── config.py              설정 dataclass + YAML 로더
+├── pipeline.py            학습 파이프라인 (auto-ml-train)
+├── preprocessing/         1) 결측 → 2) 이상치 → 3) 스케일링
+├── feature_selection/     Stability Selection 변수 선택
+├── models/                LGBM / XGBoost / CatBoost 래퍼 + Trainer
+├── tuning/                Optuna 베이지안 하이퍼파라미터 최적화
+├── reporting/             HTML + PDF 리포트 (동일 내용)
+├── scoring/               배치 스코어링 (auto-ml-score)
+└── utils/                 io / logger / validation
 ```
 
-## 4단계 파이프라인
+## 5단계 파이프라인
 
 1. **전처리** — 결측 → 이상치 → 스케일링 순서 고정. 학습 시 통계량을
    저장해 스코어링 시 동일 적용.
-2. **모형 적합** — LGBM / XGBoost / CatBoost 3종에 대해 (a) Optuna TPE 로
+2. **변수 선택** (선택) — Stability Selection (Meinshausen & Bühlmann, 2010).
+   전처리 직후 적용하여 안정적으로 선택되는 변수만 모델에 전달한다.
+   `feature_selection.enabled: false` (기본값) 이면 건너뛴다.
+3. **모형 적합** — LGBM / XGBoost / CatBoost 3종에 대해 (a) Optuna TPE 로
    하이퍼파라미터 베이지안 최적화 → (b) StratifiedKFold OOF 평가 →
    (c) 학습 전체로 최종 fit → (d) 테스트 데이터로 평가. primary_metric
    (기본 ROC-AUC) 기준으로 best 모델을 선정한다.
-3. **보고서 산출** — HTML / PDF 동일 내용 (Jinja2 + WeasyPrint). 모델 비교표,
+4. **보고서 산출** — HTML / PDF 동일 내용 (Jinja2 + WeasyPrint). 모델 비교표,
    튜닝 결과, ROC / PR 곡선, feature importance, score 분포, confusion matrix 포함.
-4. **주기 스코어링** — 단일 artifact (preprocessor + model + metadata)
+5. **주기 스코어링** — 단일 artifact (preprocessor + model + metadata)
    파일 1개 + 설정 YAML 1개로 운영 가능. cron 등에서 `auto-ml-score` 호출.
 
 ## 입력 데이터
@@ -58,6 +62,31 @@ internal_score,continuous,false
 ```yaml
 features_csv: ./configs/features.csv
 ```
+
+## 변수 선택 (Stability Selection)
+
+전처리 직후, 모델 학습 직전에 적용되는 선택적 단계이다.
+`feature_selection.enabled: true` 로 켜면 학습 데이터에서 stratified 부분표본을
+반복 추출하여 변수별 선택 빈도를 산출하고, 임계값 이상으로 자주 선택된
+변수만 최종 학습에 사용한다.
+
+```yaml
+feature_selection:
+  enabled: true
+  base_estimator: lasso      # lasso (L1 logistic) | lgbm (gain top-K)
+  n_subsamples: 200           # 부분표본 추출 횟수
+  subsample_ratio: 0.5        # 각 부분표본 크기 비율
+  threshold: 0.6              # 채택 임계값 (보통 0.6~0.8)
+  random_state: 42
+  min_selected: 1             # fallback 최소 개수
+```
+
+- `base_estimator`
+  - `lasso` — L1 로지스틱 회귀. non-zero coefficient 인 변수를 선택.
+  - `lgbm`  — LightGBM gain 중요도 상위 `lgbm_top_k` 개를 선택.
+- `min_selected` — threshold 이상 변수가 부족하면 frequency 상위 N 개로
+  fallback 하여 모델 입력이 비는 것을 방지한다.
+- 선택 결과는 artifact 메타데이터에 저장되어 스코어링 시 동일 컬럼 셋이 적용된다.
 
 ## 하이퍼파라미터 최적화
 

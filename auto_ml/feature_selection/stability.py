@@ -163,9 +163,9 @@ class StabilitySelector:
         from sklearn.linear_model import LogisticRegression
 
         clf = LogisticRegression(
-            penalty="l1",
             solver="liblinear",
             C=self.config.lasso_C,
+            l1_ratio=1.0,
             max_iter=200,
             random_state=self.config.random_state,
         )

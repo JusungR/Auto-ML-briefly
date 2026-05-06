@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "auto_ml"
 version = "0.1.0"
 description = "Auto-ML library for binary classification: preprocess, fit, report, and schedule scoring."
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 authors = [{ name = "JusungR" }]
 readme = "README.md"
 license = { text = "Proprietary" }
