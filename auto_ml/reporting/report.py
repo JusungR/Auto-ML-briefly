@@ -28,8 +28,8 @@ logger = get_logger("report")
 
 # 리포트 표에 노출할 지표 순서
 METRIC_NAMES = ("roc_auc", "ks", "lift", "accuracy", "precision", "recall", "f1", "pr_auc")
-TOP_FEATURES = 20
-TOP_SELECTION_FEATURES = 20  # 변수 선택 빈도 차트/표에 노출할 상위 개수
+TOP_FEATURES = 30
+TOP_SELECTION_FEATURES = 100  # 변수 선택 빈도 차트/표에 노출할 상위 개수
 
 
 class ReportBuilder:
@@ -108,9 +108,18 @@ class ReportBuilder:
         pr_chart = plots.pr_curve_plot(roc_curves)
 
         best = result.best
+        
+        # 상위 30개 (TOP_FEATURES) 피처 중요도 차트 및 표 데이터 생성
+        importance_items = sorted(
+            best.feature_importance.items(), key=lambda kv: kv[1], reverse=True
+        )[:TOP_FEATURES]
+        importance_rows = [
+            {"feature": k, "importance": v} for k, v in importance_items
+        ]
         importance_chart = plots.feature_importance_plot(
             best.feature_importance, top_n=TOP_FEATURES
         )
+        
         proba_by_label = {
             0: best.test_proba[result.test_y == 0],
             1: best.test_proba[result.test_y == 1],
@@ -144,6 +153,7 @@ class ReportBuilder:
             roc_chart=roc_chart,
             pr_chart=pr_chart,
             importance_chart=importance_chart,
+            importance_rows=importance_rows,
             score_dist_chart=score_dist_chart,
             decile_chart=decile_chart,
             decile_rows=decile_rows,

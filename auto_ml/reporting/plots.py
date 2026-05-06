@@ -81,14 +81,14 @@ def score_distribution_plot(
     proba_by_label: dict[int, np.ndarray], title: str = "Score Distribution",
 ) -> str:
     """라벨별 점수 분포를 히스토그램으로 그린다 (분리도 시각화)."""
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(7, 4.5))
     bins = np.linspace(0, 1, 41)
     for label, scores in proba_by_label.items():
         ax.hist(scores, bins=bins, alpha=0.5, label=f"y={label}", density=True)
     ax.set_xlabel("Predicted probability")
     ax.set_ylabel("Density")
     ax.set_title(title)
-    ax.legend()
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=2)
     return _fig_to_base64(fig)
 
 
@@ -140,6 +140,9 @@ def decile_analysis(
             "count": cnt,
             "target": pos,
             "non_target": neg,
+            "cum_target": int(cum_pos),
+            "cum_nontarget": int(cum_neg),
+            "cum_count": int(cum_count),
             "cum_count_pct": float(cum_count_pct),
             "cum_target_rate": float(cum_target_rate),
             "cum_nontarget_rate": float(cum_nontarget_rate),
@@ -183,7 +186,7 @@ def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> st
     # 두 축의 범례를 함께 표시
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, loc="lower right", fontsize=9)
+    ax.legend(h1 + h2, l1 + l2, loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize=9)
     return _fig_to_base64(fig)
 
 
