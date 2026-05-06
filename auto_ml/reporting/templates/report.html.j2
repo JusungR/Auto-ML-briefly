@@ -91,6 +91,39 @@
   <img src="{{ score_dist_chart }}" alt="Score Distribution" />
 </div>
 
+<h3>10-분위 분석 (테스트셋, 점수 내림차순)</h3>
+<div class="chart"><img src="{{ decile_chart }}" alt="Decile Analysis" /></div>
+<table>
+  <thead>
+    <tr>
+      <th>decile</th>
+      <th>score range</th>
+      <th>count</th>
+      <th>target</th>
+      <th>non-target</th>
+      <th>cum %</th>
+      <th>cum target rate</th>
+      <th>cum non-target rate</th>
+      <th>lift</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in decile_rows %}
+    <tr>
+      <td>{{ r.decile }}</td>
+      <td>{{ '%.3f'|format(r.score_min) }} ~ {{ '%.3f'|format(r.score_max) }}</td>
+      <td>{{ r.count }}</td>
+      <td>{{ r.target }}</td>
+      <td>{{ r.non_target }}</td>
+      <td>{{ '%.2f'|format(r.cum_count_pct * 100) }}%</td>
+      <td>{{ '%.4f'|format(r.cum_target_rate) }}</td>
+      <td>{{ '%.4f'|format(r.cum_nontarget_rate) }}</td>
+      <td>{{ '%.3f'|format(r.lift) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
 <h3>Confusion Matrix (threshold = 0.5)</h3>
 <table style="width: 40%;">
   <tr><th></th><th>pred 0</th><th>pred 1</th></tr>
@@ -98,7 +131,40 @@
   <tr><th>true 1</th><td>{{ confusion[1][0] }}</td><td>{{ confusion[1][1] }}</td></tr>
 </table>
 
-<h2>5. 학습 설정 요약</h2>
+{% if selection %}
+<h2>5. 변수 선택 (Stability Selection)</h2>
+<div class="meta">
+  base estimator: <strong>{{ selection.base_estimator }}</strong> ·
+  부분표본 수: {{ selection.n_subsamples }} ·
+  채택 임계값: {{ '%.2f'|format(selection.threshold) }} ·
+  채택: <strong>{{ selection.n_selected }}</strong> / {{ selection.n_total }}
+  {% if selection.fallback_used %}· <span style="color:#d62728;">(min_selected fallback 발동)</span>{% endif %}
+</div>
+<div class="chart">
+  <h3>선택 빈도 상위 {{ selection.top_n }}개</h3>
+  <img src="{{ selection.chart }}" alt="Selection Frequency" />
+</div>
+<table>
+  <thead>
+    <tr>
+      <th class="left">feature</th>
+      <th>frequency</th>
+      <th>selected</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in selection.rows %}
+    <tr>
+      <td class="left">{{ r.feature }}</td>
+      <td>{{ '%.3f'|format(r.frequency) }}</td>
+      <td>{{ 'O' if r.selected else '-' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>{{ '6' if selection else '5' }}. 학습 설정 요약</h2>
 <table>
   <tr><th class="left">key</th><th class="left">value</th></tr>
   {% for k, v in config_summary.items() %}

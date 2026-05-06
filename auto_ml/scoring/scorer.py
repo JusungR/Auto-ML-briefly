@@ -63,12 +63,28 @@ class Scorer:
             ``id_columns + ['score', 'prediction']`` 컬럼을 갖는 DataFrame.
         """
         feature_cols = list(self.metadata.feature_columns)
-        validate_schema(df, feature_cols)
+
+        # 전처리 전 별도 단계: 학습 시 봤던 컬럼이 통째로 누락된 경우
+        # 학습 데이터의 median(수치) / 최빈값(범주) 으로 컬럼 전체를 채워 넣는다.
+        df_filled, filled_cols = self.preprocessor.fill_missing_columns(df)
+        if filled_cols:
+            logger.warning(
+                "Input is missing %d feature column(s); filled with training defaults: %s",
+                len(filled_cols), filled_cols,
+            )
+
+        validate_schema(df_filled, feature_cols)
 
         # 전처리 fit 시점과 동일한 컬럼 순서로 정렬해 일관성 확보
-        X = df[feature_cols]
+        X = df_filled[feature_cols]
         X_processed = self.preprocessor.transform(X)
-        proba = self.model.predict_proba(X_processed)
+
+        # 학습 시 변수 선택을 거쳤다면 모델 입력은 그 부분집합이어야 한다.
+        # 옛 artifact (selected_features 가 비어있는 경우) 와의 호환을 위해 fallback.
+        selected = list(getattr(self.metadata, "selected_features", []) or feature_cols)
+        X_for_model = X_processed[selected]
+
+        proba = self.model.predict_proba(X_for_model)
         prediction = (proba >= threshold).astype(int)
 
         ids = id_columns if id_columns is not None else list(self.metadata.id_columns)

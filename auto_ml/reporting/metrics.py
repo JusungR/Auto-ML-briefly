@@ -16,7 +16,7 @@ from sklearn.metrics import (
 )
 
 # 지원 지표 목록 — primary_metric 검증에 활용
-SUPPORTED_METRICS = ("roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1", "ks")
+SUPPORTED_METRICS = ("roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1", "ks", "lift")
 
 
 def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray) -> float:
@@ -33,6 +33,26 @@ def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray) -> float:
     cum_pos = np.cumsum(y_sorted) / pos_total
     cum_neg = np.cumsum(1 - y_sorted) / neg_total
     return float(np.max(np.abs(cum_pos - cum_neg)))
+
+
+def top_decile_lift(y_true: np.ndarray, y_proba: np.ndarray) -> float:
+    """상위 10% 분위의 Lift 를 계산한다.
+
+    Lift = (상위 10% 양성 비율) / (전체 양성 비율). 마케팅/스코어카드에서
+    상위 표적 집단의 효율을 직관적으로 표현하는 표준 지표.
+    """
+    y_true = np.asarray(y_true)
+    y_proba = np.asarray(y_proba)
+    n = len(y_true)
+    if n == 0:
+        return 0.0
+    overall_rate = float(y_true.mean())
+    if overall_rate <= 0.0:
+        return 0.0
+    top_k = max(int(round(n * 0.1)), 1)
+    order = np.argsort(-y_proba)
+    top_rate = float(y_true[order[:top_k]].mean())
+    return top_rate / overall_rate
 
 
 def compute_metrics(
@@ -59,6 +79,7 @@ def compute_metrics(
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
         "ks": ks_statistic(y_true, y_proba),
+        "lift": top_decile_lift(y_true, y_proba),
     }
 
 
