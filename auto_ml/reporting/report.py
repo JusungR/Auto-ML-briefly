@@ -213,6 +213,8 @@ class ReportBuilder:
             "preprocessing.categorical_null_strategy": pp.categorical_null_strategy,
             "preprocessing.outlier_method": pp.outlier_method,
             "preprocessing.outlier_action": pp.outlier_action,
+            "preprocessing.skew_method": pp.skew_method,
+            "preprocessing.skew_threshold": pp.skew_threshold,
             "preprocessing.scaling_method": pp.scaling_method,
             "training.cv_folds": tr.cv_folds,
             "training.early_stopping_rounds": tr.early_stopping_rounds,

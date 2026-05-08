@@ -149,7 +149,7 @@ class PreprocessingConfig:
     """전처리 단계 옵션.
 
     전처리는 항상 다음 순서로 실행된다:
-        1) 결측 처리 → 2) 이상치 처리 → 3) 스케일링
+        1) 결측 처리 → 2) 이상치 처리 → 2.5) skew 변환 → 3) 스케일링
     """
 
     # 1) 결측 처리 (Null Handling)
@@ -163,6 +163,10 @@ class PreprocessingConfig:
     outlier_lower_quantile: float = 0.01           # 윈저라이징 하한 분위수
     outlier_upper_quantile: float = 0.99           # 윈저라이징 상한 분위수
     outlier_action: str = "clip"                   # clip | null_then_impute
+
+    # 2.5) Skew 변환 (수치형, |skew| > threshold 인 컬럼만 자동 선택)
+    skew_method: str = "signed_log1p"              # signed_log1p | quantile_normal | none
+    skew_threshold: float = 1.0                    # |skew| > threshold 면 변환 대상
 
     # 3) 스케일링 (Scaling) — 수치형에만 적용
     scaling_method: str = "standard"               # standard | minmax | robust | none
