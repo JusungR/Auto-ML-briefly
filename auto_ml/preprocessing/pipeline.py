@@ -1,4 +1,4 @@
-"""전처리 파이프라인: 결측 → 이상치 → 스케일링 순서로 실행.
+"""전처리 파이프라인: 결측 → 이상치 → skew 변환 → 스케일링 순서로 실행.
 
 본 파이프라인은 학습/스코어링 양 단계에서 동일하게 사용되며, 학습 시
 저장된 통계량을 스코어링 시 그대로 재사용해 일관성을 보장한다.
@@ -18,16 +18,18 @@ from auto_ml.config import PreprocessingConfig
 from auto_ml.preprocessing.imputer import NullImputer
 from auto_ml.preprocessing.outlier import OutlierHandler
 from auto_ml.preprocessing.scaler import NumericScaler
+from auto_ml.preprocessing.skew import SkewTransformer
 
 
 class PreprocessingPipeline:
-    """3단계(결측 → 이상치 → 스케일링) 전처리를 묶어 실행하는 컨테이너.
+    """4단계(결측 → 이상치 → skew → 스케일링) 전처리를 묶어 실행하는 컨테이너.
 
     Attributes:
         numeric_columns: 수치형 컬럼.
         categorical_columns: 범주형 컬럼.
         config: 단계별 옵션 모음.
-        imputer / outlier / scaler: 단계별 인스턴스. 디버깅·테스트 시 직접 접근 가능.
+        imputer / outlier / skew / scaler: 단계별 인스턴스.
+            디버깅·테스트 시 직접 접근 가능.
     """
 
     def __init__(
@@ -52,9 +54,14 @@ class PreprocessingPipeline:
         self.outlier = OutlierHandler(
             numeric_columns=self.numeric_columns,
             method=config.outlier_method,
-            iqr_multiplier=config.outlier_iqr_multiplier,
-            zscore_threshold=config.outlier_zscore_threshold,
+            lower_quantile=config.outlier_lower_quantile,
+            upper_quantile=config.outlier_upper_quantile,
             action=config.outlier_action,
+        )
+        self.skew = SkewTransformer(
+            numeric_columns=self.numeric_columns,
+            method=config.skew_method,
+            threshold=config.skew_threshold,
         )
         self.scaler = NumericScaler(
             numeric_columns=self.numeric_columns,
@@ -71,14 +78,15 @@ class PreprocessingPipeline:
         """각 단계를 순서대로 fit 한다.
 
         Note:
-            이상치 단계는 결측이 채워진 데이터를, 스케일러는 이상치가
-            처리된 데이터를 학습해야 통계가 왜곡되지 않는다. 그래서
-            ``fit_transform`` 으로 순차 적용한다.
+            각 단계는 이전 단계의 출력을 학습해야 통계가 왜곡되지 않는다
+            (예: skew 측정은 이상치가 클립된 데이터에서, 스케일러는 skew
+            변환된 데이터에서). 그래서 ``fit_transform`` 으로 순차 적용한다.
         """
         self._fit_column_defaults(df)
         step1 = self.imputer.fit_transform(df)
         step2 = self.outlier.fit_transform(step1)
-        self.scaler.fit(step2)
+        step3 = self.skew.fit_transform(step2)
+        self.scaler.fit(step3)
         self._fitted = True
         return self
 
@@ -88,6 +96,7 @@ class PreprocessingPipeline:
             raise RuntimeError("PreprocessingPipeline must be fit before transform.")
         x = self.imputer.transform(df)
         x = self.outlier.transform(x)
+        x = self.skew.transform(x)
         x = self.scaler.transform(x)
         return x
 

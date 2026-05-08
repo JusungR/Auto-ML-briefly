@@ -28,11 +28,15 @@ preprocessing:
   categorical_null_strategy: most_frequent  # most_frequent | constant
   categorical_null_fill_value: MISSING
 
-  # 2) 이상치 처리 (수치형)
-  outlier_method: iqr                       # iqr | zscore | none
-  outlier_iqr_multiplier: 1.5
-  outlier_zscore_threshold: 3.0
+  # 2) 이상치 처리 (수치형, 백분위수 윈저라이징)
+  outlier_method: percentile                # percentile | none
+  outlier_lower_quantile: 0.01
+  outlier_upper_quantile: 0.99
   outlier_action: clip                      # clip | null_then_impute
+
+  # 2.5) Skew 변환 (수치형, |skew| > threshold 인 컬럼만 자동 선택)
+  skew_method: signed_log1p                 # signed_log1p | quantile_normal | none
+  skew_threshold: 1.0
 
   # 3) 스케일링 (수치형)
   scaling_method: standard                  # standard | minmax | robust | none

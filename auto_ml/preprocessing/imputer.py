@@ -54,15 +54,27 @@ class NullImputer(BaseStep):
                 continue
             s = df[col]
             if self.numeric_strategy == "median":
-                self._numeric_fills[col] = float(s.median())
+                value = float(s.median())
             elif self.numeric_strategy == "mean":
-                self._numeric_fills[col] = float(s.mean())
+                value = float(s.mean())
             elif self.numeric_strategy == "constant":
-                self._numeric_fills[col] = float(self.numeric_fill_value)
+                value = float(self.numeric_fill_value)
             else:
                 raise ValueError(
                     f"Unknown numeric null strategy: {self.numeric_strategy}"
                 )
+            # median/mean 은 학습 데이터의 컬럼이 전부 NaN 이면 NaN 을 반환한다.
+            # 그대로 저장하면 transform 의 fillna(nan) 이 no-op 이 되어 결측이
+            # 다음 단계로 silent 하게 전파되므로 명시적으로 실패시킨다.
+            if pd.isna(value):
+                raise ValueError(
+                    f"Numeric column '{col}' has no non-null values in the "
+                    f"training data; cannot compute fill value for "
+                    f"numeric_null_strategy='{self.numeric_strategy}'. "
+                    f"Remove the column from features.csv (set used=false) "
+                    f"or switch numeric_null_strategy to 'constant'."
+                )
+            self._numeric_fills[col] = value
 
         # ----- 범주형 -----
         for col in self.categorical_columns:
