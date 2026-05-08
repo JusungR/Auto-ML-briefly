@@ -21,9 +21,9 @@ preprocessing:
   numeric_null_fill_value: 0.0
   categorical_null_strategy: most_frequent
   categorical_null_fill_value: MISSING
-  outlier_method: iqr
-  outlier_iqr_multiplier: 1.5
-  outlier_zscore_threshold: 3.0
+  outlier_method: percentile
+  outlier_lower_quantile: 0.01
+  outlier_upper_quantile: 0.99
   outlier_action: clip
   scaling_method: standard
 

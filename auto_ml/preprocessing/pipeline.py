@@ -52,8 +52,8 @@ class PreprocessingPipeline:
         self.outlier = OutlierHandler(
             numeric_columns=self.numeric_columns,
             method=config.outlier_method,
-            iqr_multiplier=config.outlier_iqr_multiplier,
-            zscore_threshold=config.outlier_zscore_threshold,
+            lower_quantile=config.outlier_lower_quantile,
+            upper_quantile=config.outlier_upper_quantile,
             action=config.outlier_action,
         )
         self.scaler = NumericScaler(
