@@ -9,7 +9,7 @@
 auto_ml/
 ├── config.py              설정 dataclass + YAML 로더
 ├── pipeline.py            학습 파이프라인 (auto-ml-train)
-├── preprocessing/         1) 결측 → 2) 이상치 → 3) 스케일링
+├── preprocessing/         1) 결측 → 2) 이상치 → 2.5) skew 변환 → 3) 스케일링
 ├── feature_selection/     Stability Selection 변수 선택
 ├── models/                LGBM / XGBoost / CatBoost 래퍼 + Trainer
 ├── tuning/                Optuna 베이지안 하이퍼파라미터 최적화
@@ -20,8 +20,8 @@ auto_ml/
 
 ## 5단계 파이프라인
 
-1. **전처리** — 결측 → 이상치 → 스케일링 순서 고정. 학습 시 통계량을
-   저장해 스코어링 시 동일 적용.
+1. **전처리** — 결측 → 이상치 → skew 변환 → 스케일링 순서 고정. 학습 시
+   통계량을 저장해 스코어링 시 동일 적용.
 2. **변수 선택** (선택) — Stability Selection (Meinshausen & Bühlmann, 2010).
    전처리 직후 적용하여 안정적으로 선택되는 변수만 모델에 전달한다.
    `feature_selection.enabled: false` (기본값) 이면 건너뛴다.
@@ -53,7 +53,7 @@ internal_score,continuous,false
 ```
 
 - `type`
-  - `continuous` — 연속형 (int / float). 결측·이상치·스케일링 적용.
+  - `continuous` — 연속형 (int / float). 결측·이상치·skew 변환·스케일링 적용.
   - `category`   — 범주형 (문자열 / 코드). 모델 래퍼에서 자체 인코딩 처리.
 - `used`
   - `true` 인 행만 학습/스코어링에 사용된다 (`false`/공백 → 제외).
@@ -62,6 +62,51 @@ internal_score,continuous,false
 ```yaml
 features_csv: ./configs/features.csv
 ```
+
+## 이상치 처리 (백분위수 윈저라이징)
+
+전처리 2단계. 학습 데이터의 컬럼별 분위수 `(quantile(lower_q), quantile(upper_q))` 를
+경계로 사용해 윈저라이징하고, 스코어링 시 학습 시 저장한 동일 경계를 그대로
+적용한다.
+
+```yaml
+preprocessing:
+  outlier_method: percentile     # percentile | none
+  outlier_lower_quantile: 0.01
+  outlier_upper_quantile: 0.99
+  outlier_action: clip           # clip | null_then_impute
+```
+
+- `outlier_method`
+  - `percentile` — 학습 분포의 (lower_q, upper_q) 분위수를 경계로 사용. (기본)
+  - `none` — 비활성.
+- `outlier_action`
+  - `clip` — 경계 밖 값을 경계로 잘라낸다. (기본)
+  - `null_then_impute` — 경계 밖을 NaN 으로 만든 뒤 학습 시 median 으로 다시 채운다.
+- `outlier_lower_quantile < outlier_upper_quantile` 이고 둘 다 `[0, 1]` 범위여야 한다
+  (위반 시 `ValueError`).
+
+## Skew 변환
+
+전처리 2.5단계. 학습 데이터의 컬럼별 skew 를 측정해 임계값 초과인 변수만
+자동으로 선택해 분포를 대칭화한다. 학습 시 추정된 변환 파라미터를 저장해
+스코어링에 동일 적용한다.
+
+```yaml
+preprocessing:
+  skew_method: signed_log1p      # signed_log1p | quantile_normal | none
+  skew_threshold: 1.0            # |skew| > threshold 인 컬럼만 변환
+```
+
+- `skew_method`
+  - `signed_log1p` — `sign(x) * log1p(|x|)`. 음수까지 단조 보존, 무상태. (기본)
+  - `quantile_normal` — sklearn `QuantileTransformer` 로 학습 분포의 분위수를
+    표준정규로 매핑. 이상치/skew 모두에 강건. 학습 시 분위수 테이블을 저장.
+  - `none` — 비활성.
+- 변환 대상은 학습 시 한 번만 결정된다. `|skew| > skew_threshold` 인 컬럼만
+  선택되며, 미선택 컬럼은 스코어링에서도 그대로 통과한다 (분포 일관성).
+- 부스팅 트리는 단조 변환에 본질적으로 강건하지만, 선형/신경망 확장이나
+  분포 가정을 쓰는 진단에는 효과가 있다.
 
 ## 변수 선택 (Stability Selection)
 
@@ -211,3 +256,6 @@ logging:
 - 학습 시 사용한 features 정의가 artifact 메타데이터에 저장되어
   스코어링 시 동일 컬럼 셋·동일 전처리·동일 모델로 처리된다.
 - 스코어링 결과 컬럼: `<id_columns> + score + prediction`.
+- 학습 데이터에서 어떤 수치형 컬럼이 전부 NaN 이면 결측·이상치 단계가
+  명시적 `ValueError` 로 실패한다 (silent NaN 전파 방지). `features.csv` 의
+  `used` 를 false 로 두거나 해당 단계를 비활성화/`constant` 전략으로 전환.
