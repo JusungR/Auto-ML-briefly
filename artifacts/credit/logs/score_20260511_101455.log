@@ -1,0 +1,11 @@
+2026-05-11 10:14:55 | INFO    | auto_ml.scoring.runner | ============================================================
+2026-05-11 10:14:55 | INFO    | auto_ml.scoring.runner | Auto-ML scoring started
+2026-05-11 10:14:55 | INFO    | auto_ml.scoring.runner | ============================================================
+2026-05-11 10:14:55 | INFO    | auto_ml.scoring.runner | Log file: artifacts/credit/logs/score_20260511_101455.log
+2026-05-11 10:14:55 | INFO    | auto_ml.scoring.runner | Loading artifact: artifacts/credit/models/best.joblib
+2026-05-11 10:14:55 | INFO    | auto_ml.scoring.runner | Reading input parquet: examples/credit/data/score_input.parquet
+2026-05-11 10:14:56 | INFO    | auto_ml.scorer | Scored 6000 rows (model=catboost, threshold=0.500)
+2026-05-11 10:14:56 | INFO    | auto_ml.scoring.runner | Wrote scored output: artifacts/credit/scores/scores.parquet (rows=6000)
+2026-05-11 10:14:56 | INFO    | auto_ml.scoring.runner | ============================================================
+2026-05-11 10:14:56 | INFO    | auto_ml.scoring.runner | Scoring completed in 0.5s
+2026-05-11 10:14:56 | INFO    | auto_ml.scoring.runner | ============================================================
