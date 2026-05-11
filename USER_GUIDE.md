@@ -242,49 +242,374 @@ id_columns: [user_id]                     # 스코어링 결과에 그대로 따
 
 ### 7-2. 전처리 섹션
 
+처리 순서는 **결측 → 이상치 → skew 변환 → 스케일링** 으로 고정되어 있습니다.
+학습 시 사용한 통계량(중앙값, 분위수, 분위수 테이블, 스케일러 fit 결과 등) 은
+모두 `best.joblib` 에 저장되어 스코어링 시 **동일하게 적용**됩니다 — 즉
+학습/스코어링 일관성이 자동 보장됩니다.
+
+#### 7-2-a. 결측치 채우기
+
 ```yaml
 preprocessing:
-  numeric_null_strategy: median            # 결측치를 무엇으로 채울지
-  outlier_method: percentile               # 이상치 자르기 방법
-  outlier_lower_quantile: 0.01             # 하위 1% 미만은 잘라낸다
-  outlier_upper_quantile: 0.99             # 상위 1% 초과는 잘라낸다
-  skew_method: signed_log1p                # 한쪽으로 치우친 분포를 펴는 방법
-  skew_threshold: 1.0                      # |skew| > 1 인 컬럼만 변환
-  scaling_method: standard                 # 평균 0, 분산 1 로 정규화
+  numeric_null_strategy: median               # median | mean | constant
+  numeric_null_fill_value: 0.0                # constant 일 때만 사용
+  categorical_null_strategy: most_frequent    # most_frequent | constant
+  categorical_null_fill_value: MISSING        # constant 일 때만 사용
 ```
 
-처리 순서는 **결측 → 이상치 → skew 변환 → 스케일링** 으로 고정되어 있습니다.
-학습 시 사용한 통계량(중앙값, 분위수 등)은 모두 `best.joblib` 에 저장되어
-스코어링 시 **동일하게 적용**됩니다.
+- **수치형 전략**
+  - `median` — 중앙값. 이상치에 강건. (기본 추천)
+  - `mean` — 평균. 분포가 대칭일 때만 적합.
+  - `constant` — `numeric_null_fill_value` 값으로 일괄 채움 (0.0 등).
+- **범주형 전략**
+  - `most_frequent` — 최빈값. (기본)
+  - `constant` — `categorical_null_fill_value` 값으로 일괄 채움 ("MISSING" 등).
 
-### 7-3. 모델 / 튜닝 섹션
+> ⚠️ **전부-NaN 가드**: 학습 데이터에서 어떤 수치형 컬럼이 전부 NaN 이면
+> `median`/`mean` 으로 채움 값을 계산할 수 없습니다. silent NaN 전파를 막기
+> 위해 `ValueError` 로 즉시 실패합니다. `features.csv` 에서 해당 컬럼의
+> `used` 를 false 로 두거나 `numeric_null_strategy: constant` 로 전환하세요.
+
+스코어링 시 입력 데이터에서 **컬럼 자체가 통째로 빠진 경우** 에도 학습
+시점에 산출한 기본값(수치형 median, 범주형 최빈값)으로 자동 채워집니다 —
+일시 누락에도 파이프라인이 죽지 않도록 별도 안전망이 있습니다.
+
+#### 7-2-b. 이상치 처리 (백분위수 윈저라이징)
+
+```yaml
+preprocessing:
+  outlier_method: percentile        # percentile | none
+  outlier_lower_quantile: 0.01      # 하위 1 % 미만은 잘라낸다
+  outlier_upper_quantile: 0.99      # 상위 1 % 초과는 잘라낸다
+  outlier_action: clip              # clip | null_then_impute
+```
+
+- 학습 데이터의 컬럼별 `(quantile(lower_q), quantile(upper_q))` 경계를 저장하고
+  스코어링 시 동일 경계를 적용합니다.
+- **`outlier_action`**
+  - `clip` — 경계 밖 값을 경계로 잘라낸다 (기본).
+  - `null_then_impute` — 경계 밖을 NaN 으로 만든 뒤 학습 시 median 으로 채움.
+- 분위수 입력은 `0 ≤ lower < upper ≤ 1` 위반 시 `ValueError`. 전부-NaN 컬럼은
+  분위수가 NaN 이 되어 처리 불가 → 명시적 실패.
+
+권장 조합:
+- 일반 운영 — `percentile / 0.01 / 0.99 / clip` (기본값) 이면 99% 의 경우 OK.
+- 분포가 극단적이면 — `0.005 / 0.995` 로 더 보수적, 또는 `null_then_impute`
+  로 median 대체.
+
+#### 7-2-c. Skew 변환
+
+```yaml
+preprocessing:
+  skew_method: signed_log1p         # signed_log1p | quantile_normal | none
+  skew_threshold: 1.0
+```
+
+- **자동 선택**: 학습 데이터에서 `|skew| > skew_threshold` 인 컬럼만 변환
+  대상으로 지정합니다. 학습 시 한 번만 결정되며, 미선택 컬럼은 스코어링에서도
+  통과합니다.
+- **`signed_log1p`** (기본) — `sign(x) * log1p(|x|)`. 음수까지 단조 보존, 무상태.
+  추가 학습 파라미터가 없어 가볍습니다.
+- **`quantile_normal`** — sklearn `QuantileTransformer(output_distribution=
+  "normal")` 로 학습 분포의 분위수를 표준정규로 매핑. 이상치/skew 모두에
+  강건하지만 학습 시 분위수 테이블을 저장합니다 (artifact 크기 약간 증가).
+- **`none`** — 비활성.
+
+> 부스팅 트리는 단조 변환에 본질적으로 강건합니다. skew 변환은 선형/신경망
+> 확장이나 분포 가정 진단을 쓸 때 효과적이며, 트리 모델만 쓴다면 끄거나
+> threshold 를 높여도 됩니다.
+
+#### 7-2-d. 스케일링
+
+```yaml
+preprocessing:
+  scaling_method: standard          # standard | minmax | robust | none
+```
+
+- **`standard`** — 평균 0, 분산 1 (`StandardScaler`). 기본.
+- **`minmax`** — [0, 1] 정규화 (`MinMaxScaler`).
+- **`robust`** — 중앙값·IQR 기준 (`RobustScaler`). 이상치에 강건.
+- **`none`** — 비활성.
+
+본 라이브러리의 기본 모델은 부스팅 트리(LGBM/XGB/CatBoost) 이므로 스케일링
+유무가 성능에 거의 영향을 주지 않습니다. 그래도 옵션으로 두는 이유는
+선형/신경망 모델로 확장할 때를 대비함입니다. 학습 시 fit 된 스케일러는
+artifact 에 저장되어 스코어링 시 동일 변환이 적용됩니다.
+
+### 7-3. 모델 / 학습 / 튜닝 섹션
+
+#### 7-3-a. 무엇이 일어나나
+
+`auto-ml-train` 한 번 호출하면 활성화된 모델(기본: LGBM + XGB + CatBoost) 각각에
+대해 다음이 순서대로 일어납니다.
+
+1. **하이퍼파라미터 튜닝** (`tuning.enabled: true` 이고 `search_space` 가 있을 때) —
+   Optuna TPE 가 `n_trials` 만큼 시도하며 `primary_metric` 의 KFold OOF 평균을
+   최대화하는 파라미터를 찾는다.
+2. **튜닝된 파라미터(또는 fixed_params 만) 로 KFold OOF 평가** — 학습 데이터를
+   `training.cv_folds` 등분해 OOF 예측을 만든다.
+3. **학습 전체로 최종 fit** — OOF 평가에 사용된 fold split 과 무관하게 학습
+   데이터 전체로 다시 fit.
+4. **테스트 데이터로 평가** — `primary_metric` 점수 산출.
+
+이 과정을 모델 3개에 모두 적용한 뒤, **테스트 데이터 점수가 가장 좋은 모델
+1개**가 best 로 선정되어 artifact 에 저장됩니다.
+
+#### 7-3-b. 학습 옵션 (`training`)
+
+```yaml
+training:
+  cv_folds: 5                       # 최종 OOF 평가용 fold 수
+  random_state: 42                  # 재현성을 위한 시드 (fold split 등)
+  early_stopping_rounds: 50         # 부스팅 모델 조기종료 라운드 수
+  primary_metric: roc_auc           # 모델 선택 / 튜닝 목적함수
+```
+
+- **`cv_folds`** — StratifiedKFold 분할 수. 5 가 표준, 적은 데이터(< 2k 행)면 3.
+- **`early_stopping_rounds`** — 검증셋 점수가 N 라운드 동안 개선되지 않으면
+  학습 조기 종료. 모델별로 사용되는 방식이 다르지만 (LGBM callbacks, XGB
+  생성자 인자, CatBoost 학습 인자) 모두 동일 설정값으로 통합 적용됩니다.
+- **`primary_metric`** — 다음 중 하나:
+  | 지표 | 설명 |
+  |---|---|
+  | `roc_auc` | AUC (기본, 임계값에 무관) |
+  | `pr_auc` | Average Precision (positive 비율 낮을 때 권장) |
+  | `ks` | KS statistic (신용평점 도메인) |
+  | `f1` | F1 score (임계값 0.5 기준) |
+  | `accuracy` | 정확도 |
+  | `precision` / `recall` | 임계값 0.5 기준 |
+  | `lift` | 상위 분위 lift |
+
+#### 7-3-c. 튜닝 옵션 (`tuning`)
 
 ```yaml
 tuning:
   enabled: true
-  n_trials: 30           # 모델당 30번 시도해서 가장 좋은 파라미터 찾기
-  cv_folds: 3
-
-models:
-  lgbm:     { enabled: true, ... }
-  xgb:      { enabled: true, ... }
-  catboost: { enabled: true, ... }
+  n_trials: 30                      # 모델당 시도 횟수 (기본 시작점)
+  timeout: null                     # 초 단위 wall-clock 상한 (null 이면 제한 없음)
+  cv_folds: 3                       # 튜닝 단계의 fold 수 (보통 training.cv_folds 보다 작게)
+  random_state: 42                  # TPE 샘플러 시드
 ```
 
-세 모델을 동시에 학습한 뒤 **테스트 성능이 가장 좋은 모델 1개**가 best 로
-선정됩니다. 빠르게 돌려보려면 `n_trials: 5`, `cv_folds: 2` 정도로 줄이세요.
+- **`n_trials`** — 30~50 이 실용 시작점, 100+ 면 마지널 효과. 시연용은 10~15.
+- **`timeout`** — 야간 배치 등에서 wall-clock 상한이 중요하면 초 단위로 지정
+  (`timeout: 1800` → 30 분).
+- **`cv_folds`** — 튜닝 단계는 시간이 비례해 늘어나므로 보통 `training.cv_folds`
+  보다 작게 잡습니다 (예: training=5, tuning=3).
+- 비활성화 (`enabled: false`) 또는 모델 `search_space` 가 비어있으면 해당 모델은
+  `fixed_params` 만으로 학습합니다.
 
-### 7-4. 변수 선택 (선택 사항)
+#### 7-3-d. 모델 옵션 (`models`)
+
+각 모델은 **`fixed_params`** (항상 적용) 와 **`search_space`** (Optuna 탐색
+범위) 를 가집니다. 예시 (`lgbm`):
+
+```yaml
+models:
+  lgbm:
+    enabled: true
+    fixed_params:                   # 항상 적용. 도메인상 고정값
+      objective: binary
+      metric: auc
+      verbose: -1
+      n_estimators: 2000
+    search_space:                   # Optuna 가 매 trial 샘플링
+      learning_rate: { type: float, low: 0.01, high: 0.3, log: true }
+      num_leaves:    { type: int,   low: 15,   high: 255 }
+      min_data_in_leaf: { type: int, low: 10, high: 100 }
+      reg_lambda:    { type: float, low: 1.0e-8, high: 10.0, log: true }
+```
+
+`search_space` 항목 형식:
+
+- **`type: float`** — `low`, `high`, `log` (선택, 기본 false). 학습률처럼
+  로그 스케일이 자연스러운 값은 `log: true`.
+- **`type: int`** — `low`, `high`, `log` (선택), `step` (선택, 기본 1).
+- **`type: categorical`** — `choices: [val1, val2, ...]`. 문자열·boolean 등 이산값.
+
+`search_space` 가 비면 해당 모델은 `fixed_params` 만으로 학습하고 튜닝을
+생략합니다.
+
+#### 7-3-e. 모델별 메모
+
+| 모델 | 범주형 처리 | early_stopping 적용 방식 | 비고 |
+|---|---|---|---|
+| **LightGBM** (`lgbm`) | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | 가장 빠름 |
+| **XGBoost** (`xgb`) | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
+| **CatBoost** (`catboost`) | native (`cat_features` 인덱스) | 학습 인자 `early_stopping_rounds` | `allow_writing_files: false` 권장 — 운영 중 임시 파일 차단 |
+
+이 세 모델은 모두 동일한 전처리 결과 (그리고 변수 선택을 켰다면 동일한 채택
+컬럼 셋) 를 공유합니다. 범주형 인코딩만 모델 래퍼 안에서 모델별로 자체
+처리됩니다.
+
+#### 7-3-f. 처음에는 어떻게 설정하면 좋나요?
+
+빠른 1차 검증용:
+
+```yaml
+training:
+  cv_folds: 3
+  early_stopping_rounds: 30
+  primary_metric: roc_auc
+
+tuning:
+  enabled: true
+  n_trials: 10
+  cv_folds: 3
+```
+
+운영 권장:
+
+```yaml
+training:
+  cv_folds: 5
+  early_stopping_rounds: 50
+
+tuning:
+  enabled: true
+  n_trials: 30
+  cv_folds: 3
+  timeout: 1800   # 30 분 안에 끝내고 싶을 때
+```
+
+세 모델 모두 활성화한 상태로 시작해, 운영 시간이 빠듯하면 가장 빠른 LGBM 만
+켜는 것도 방법입니다.
+
+### 7-4. 변수 선택 (Stability Selection)
+
+#### 무엇을 하나요?
+
+수십~수백 개 변수 중 **진짜로 의미 있는 변수만** 자동으로 추려주는 단계입니다.
+한 번 학습해 본 결과만 가지고 변수를 고르면, 운 좋게 한 번 잘 잡혔을 뿐인
+변수(noise) 까지 같이 채택될 수 있습니다. 이를 막기 위해 학습 데이터의
+**부분표본을 여러 번 뽑아** 부분표본마다 변수를 골라 보고, **자주 뽑히는
+변수만** 최종 채택합니다. Meinshausen & Bühlmann (2010) 의 Stability
+Selection 절차입니다.
+
+#### 작동 흐름
+
+1. 학습 데이터에서 절반씩(또는 `subsample_ratio` 비율) 부분표본을
+   `n_subsamples` 번 뽑습니다. 클래스 비율은 부분표본마다 유지됩니다
+   (stratified).
+2. 부분표본마다 `base_estimator` 로 변수를 뽑습니다.
+3. 각 변수가 부분표본 몇 번에서 뽑혔는지를 세서 **선택 빈도 (0.0~1.0)** 를
+   계산합니다.
+4. `threshold` 이상으로 자주 뽑힌 변수만 채택합니다. 너무 적게 채택되면
+   `min_selected` 안전망이 발동해 빈도 상위 N 개를 보충합니다.
+
+#### 전체 설정 (모든 키)
 
 ```yaml
 feature_selection:
-  enabled: false          # 기본 false. 필요할 때만 true 로.
-  base_estimator: lasso
-  threshold: 0.6
+  enabled: true                   # 사용 여부 (기본 false)
+  base_estimator: lasso           # lasso | lgbm
+  n_subsamples: 200               # 부분표본을 몇 번 뽑을지
+  subsample_ratio: 0.5            # 부분표본 크기 비율 (원 논문 권고 0.5)
+  threshold: 0.6                  # 채택 임계값 (보통 0.6~0.8)
+  random_state: 42                # 재현성을 위한 시드
+  min_selected: 1                 # 채택 변수가 부족할 때 fallback 최소 개수
+
+  # base_estimator: lasso 일 때만 사용
+  lasso_C: 0.1                    # L1 규제 강도. 낮을수록 더 sparse
+
+  # base_estimator: lgbm 일 때만 사용
+  lgbm_top_k: 30                  # 부분표본당 gain 상위 K 개 채택
+  lgbm_n_estimators: 100          # 부분표본 학습용 LGBM 트리 수 (가볍게)
+  lgbm_learning_rate: 0.1
 ```
 
-수백 개 변수 중 **안정적으로 의미 있는 변수만** 자동으로 추리고 싶을 때
-`enabled: true` 로 바꿉니다. 처음에는 끄고 시작하는 것을 권장합니다.
+#### base_estimator — lasso vs lgbm
+
+| 항목 | `lasso` (L1 로지스틱) | `lgbm` (LightGBM gain) |
+|---|---|---|
+| 선택 기준 | non-zero coefficient | gain 중요도 상위 K 개 |
+| 잘 잡는 신호 | 선형 효과 | 비선형 · 상호작용 |
+| 범주형 처리 | full-X frequency encoding (1회 사전) | pandas category native |
+| 부분표본당 속도 | 빠름 | 상대적으로 느림 |
+| 추천 시나리오 | 선형 모델 컨텍스트, 빠른 실험 | 트리 모델 컨텍스트, 비선형 의심 |
+
+선택 기준이 다르므로 두 방식이 항상 같은 변수를 뽑지는 않습니다. 둘 다
+돌려보고 채택 결과를 비교하면 도움이 됩니다.
+
+#### 하이퍼파라미터 가이드 (실무 기준)
+
+- **`n_subsamples`** — 표준 100~500. 작은 데이터(< 5천 행)면 50~100 도 충분,
+  큰 데이터·고차원이면 200+. 늘릴수록 빈도 추정이 안정되지만 시간이 비례해
+  늘어납니다.
+- **`subsample_ratio`** — 원 논문 권고 0.5. 너무 크면 모든 부분표본이 비슷해져
+  선택이 안정화되지 않고, 너무 작으면 fit 자체가 흔들립니다.
+- **`threshold`** — 0.6 보수적, 0.8 매우 보수적. **거짓 양성**(noise 가 잘못
+  채택되는 일) 을 더 엄격히 막고 싶으면 0.7~0.8 로 올립니다.
+- **`min_selected`** — 채택 변수가 부족할 때 발동하는 안전망. 모델 입력이 비어
+  학습이 실패하는 사고를 막습니다. 평소에는 거의 발동되지 않아야 하고
+  (발동 시 WARN 로그가 남습니다), 자주 발동하면 `threshold` 를 낮추거나
+  base_estimator 설정을 점검해야 합니다.
+- **`lasso_C`** (lasso 일 때) — 규제 강도의 **역수**. 즉 **낮을수록 규제 강함**
+  → 더 sparse 하게 잘립니다. 0.1 이 시작점, 변수가 너무 많이 살아남으면
+  0.01 로 조이고, 너무 잘려나가면 1.0 으로 풉니다.
+- **`lgbm_top_k`** (lgbm 일 때) — 부분표본당 채택 상한. 전체 feature 의
+  30~50% 정도가 적당합니다. 너무 크면 거의 모든 변수가 한 번씩 뽑혀
+  threshold 이상이 폭증합니다.
+
+#### 결과는 어디에 남나요?
+
+- 채택된 변수 목록 (`selected_features`), 모든 변수의 선택 빈도
+  (`frequencies`), 실제 사용된 부분표본 수 (`n_subsamples`), fallback 발동
+  여부 (`fallback_used`) 가 `SelectionResult` 에 담겨 **`best.joblib`
+  메타데이터에 저장**됩니다.
+- 스코어링 시 동일한 변수 셋만 모델로 흘러갑니다 — 즉 학습/스코어링 컬럼
+  일관성이 자동 보장됩니다.
+- HTML/PDF 리포트의 **변수 선택 섹션**에 변수별 빈도 막대와 채택/제외 라벨이
+  표기됩니다 (예: `examples/credit/` 의 리포트 6번 섹션).
+
+#### 처음에는 어떻게 설정하면 좋나요?
+
+- **변수가 10개 이하면** 굳이 안 켜도 됩니다 (`enabled: false`). 부스팅 트리
+  자체의 내장 selection 으로 충분합니다.
+- **변수가 30개 이상이거나 noise 가 섞여 있을 가능성이 있으면** 다음 기본값을
+  추천합니다:
+  ```yaml
+  feature_selection:
+    enabled: true
+    base_estimator: lasso
+    n_subsamples: 100
+    subsample_ratio: 0.5
+    threshold: 0.6
+    lasso_C: 0.1
+    min_selected: 3
+  ```
+- 결과를 보고 채택이 너무 적으면 `threshold: 0.5` 또는 `lasso_C: 1.0`,
+  채택이 너무 많으면 `threshold: 0.8` 또는 `lasso_C: 0.01` 로 조정합니다.
+
+#### 구현 (어떻게 만들었나)
+
+구현은 `auto_ml/feature_selection/stability.py` 의 `StabilitySelector` 클래스에
+있습니다. 핵심 흐름은 다음과 같습니다.
+
+1. **사전 인코딩 1회** — base_estimator 에 맞춰 입력을 미리 준비합니다.
+   부분표본마다 다시 인코딩하지 않아 속도·일관성이 좋습니다.
+   - `lasso`: 범주형은 full-X 기준 **frequency encoding**(값 → 등장 비율),
+     수치형은 NaN → 0 으로 안전화.
+   - `lgbm`: 범주형은 pandas `category` dtype 으로 변환 → LightGBM 이
+     native 처리.
+2. **Stratified 부분표본 반복** — sklearn 의 `StratifiedShuffleSplit
+   (n_splits=n_subsamples, train_size=subsample_ratio, random_state=...)`
+   으로 부분표본 인덱스를 생성하고, 매번 base_estimator 로 변수 셋을 뽑습니다.
+   - `lasso`: `LogisticRegression(solver="liblinear", C=lasso_C, penalty="l1",
+     max_iter=200)` 로 fit → coefficient 가 0 이 아닌 컬럼을 채택.
+   - `lgbm`: `LGBMClassifier(...).fit(X, y, categorical_feature=cat_idx)` 로
+     fit → gain importance 상위 `lgbm_top_k` 개 중 importance > 0 만 채택.
+3. **카운트 누적** — 변수별 채택 횟수를 누적합니다. 부분표본 한 개의 fit 이
+   실패해도(예: 한 클래스가 비는 극단 케이스) warning 로그만 남기고 다음으로
+   넘어갑니다.
+4. **threshold + fallback 적용** — `frequencies[f] = count[f] / n_done` 으로
+   빈도를 계산하고 `frequency ≥ threshold` 인 변수만 채택. 채택 변수가
+   `min_selected` 미만이면 빈도 상위 N 개로 fallback 하고 `fallback_used=True`
+   를 기록합니다.
+
+결과는 `SelectionResult(selected_features, frequencies, threshold,
+n_subsamples, base_estimator, fallback_used)` 로 반환되어 `best.joblib`
+메타데이터에 그대로 보관됩니다.
 
 ---
 
@@ -468,7 +793,7 @@ auto-ml-score --config configs/my_config.yaml
 | **스케일링** | 변수마다 다른 단위(나이 vs 소득)를 비슷한 크기로 맞추는 작업 |
 | **이상치 (outlier)** | 분포에서 너무 동떨어진 극단값 |
 | **Skew (왜도)** | 분포가 한쪽으로 치우친 정도. 큰 값을 log 등으로 펴주면 학습이 안정됨 |
-| **Stability Selection** | 부분표본을 여러 번 뽑아 자주 선택되는 변수만 추리는 방법 |
+| **Stability Selection** | 부분표본을 여러 번 뽑아 자주 선택되는 변수만 추리는 방법 (Meinshausen & Bühlmann, 2010). `feature_selection` 섹션 참고 |
 | **Optuna / TPE** | 베이지안 방식으로 하이퍼파라미터를 똑똑하게 탐색하는 라이브러리 |
 | **하이퍼파라미터** | 모델 학습 전에 사람이 정해주는 설정값 (학습률, 트리 깊이 등) |
 | **KFold / OOF** | 데이터를 K 등분해 돌아가며 평가. Out-Of-Fold 예측을 모아 점수 계산 |
