@@ -63,6 +63,29 @@ internal_score,continuous,false
 features_csv: ./configs/features.csv
 ```
 
+## 결측치 처리
+
+전처리 1단계. 학습 데이터에서 컬럼별 채움 값을 계산해 저장하고, 스코어링 시
+동일하게 적용한다. 학습/스코어링 일관성을 보장한다.
+
+```yaml
+preprocessing:
+  numeric_null_strategy: median               # median | mean | constant
+  numeric_null_fill_value: 0.0                # constant 일 때만 사용
+  categorical_null_strategy: most_frequent    # most_frequent | constant
+  categorical_null_fill_value: MISSING        # constant 일 때만 사용
+```
+
+- 수치형 전략: `median` (이상치에 강건, 기본) / `mean` / `constant`.
+- 범주형 전략: `most_frequent` (기본) / `constant`.
+- **전부-NaN 가드**: 학습 데이터에서 어떤 수치형 컬럼이 전부 NaN 이면
+  `median`/`mean` 으로 채움 값을 계산할 수 없어 silent NaN 전파를 막기 위해
+  명시적 `ValueError` 로 실패한다. `features.csv` 에서 해당 컬럼의 `used` 를
+  false 로 두거나 `constant` 전략으로 전환.
+- 별도로 `PreprocessingPipeline.fill_missing_columns(df)` 가 스코어링 시
+  **컬럼 자체가 통째로 누락**된 케이스에 대비해 학습 시 산출한 기본값
+  (수치형 median, 범주형 최빈값) 으로 채워준다. 부분 NaN 은 imputer 가 처리.
+
 ## 이상치 처리 (백분위수 윈저라이징)
 
 전처리 2단계. 학습 데이터의 컬럼별 분위수 `(quantile(lower_q), quantile(upper_q))` 를
@@ -107,6 +130,24 @@ preprocessing:
   선택되며, 미선택 컬럼은 스코어링에서도 그대로 통과한다 (분포 일관성).
 - 부스팅 트리는 단조 변환에 본질적으로 강건하지만, 선형/신경망 확장이나
   분포 가정을 쓰는 진단에는 효과가 있다.
+
+## 스케일링
+
+전처리 3단계 (마지막). sklearn 의 스케일러를 pandas 입출력으로 감싼 얇은 래퍼.
+
+```yaml
+preprocessing:
+  scaling_method: standard            # standard | minmax | robust | none
+```
+
+- `standard` — `StandardScaler` (평균 0, 분산 1). 기본.
+- `minmax` — `MinMaxScaler` ([0, 1]).
+- `robust` — `RobustScaler` (median, IQR — 이상치에 강건).
+- `none` — 비활성 (passthrough).
+
+부스팅 트리만 쓰면 의미가 작지만, 선형/신경망 확장을 가정해 옵션으로 둔다.
+학습 시 fit 된 스케일러는 artifact 에 저장되어 스코어링 시 동일 변환이
+적용된다.
 
 ## 변수 선택 (Stability Selection)
 
@@ -230,17 +271,53 @@ HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 �
    ≥ threshold` 인 변수만 채택, 부족하면 빈도 상위 `min_selected` 개로
    fallback 하고 `fallback_used=True` 가 메타에 기록된다.
 
+## 모델 래퍼
+
+`auto_ml/models/` 의 세 래퍼 (`LGBMModel`, `XGBModel`, `CatBoostModel`) 는 모두
+동일한 인터페이스(`fit / predict_proba / feature_importance`) 를 따른다. 차이는
+범주형 처리 방식과 early_stopping 구현이다.
+
+| 모델 | 범주형 처리 | early_stopping 적용 | 비고 |
+|---|---|---|---|
+| `LGBMModel` | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | 가장 빠름 |
+| `XGBModel` | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용, `_encoders` 보관) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
+| `CatBoostModel` | native (`cat_features` 인덱스 전달) | 학습 인자 `early_stopping_rounds` | `allow_writing_files: false` 권장 — 운영 임시 파일 차단 |
+
+3 모델 모두 동일한 전처리 결과와 (활성 시) 변수 선택 채택 컬럼 셋을 공유한 채
+병렬 학습되고, **테스트 데이터 `primary_metric` 점수가 가장 좋은 모델 1개**가
+best 로 선정되어 artifact 에 저장된다.
+
+### Trainer 흐름
+
+`auto_ml/models/trainer.py` 의 `ModelTrainer` 가 모델별로 다음을 수행:
+
+1. (옵션) `HyperparameterOptimizer` 가 Optuna TPE 로 `tuning.cv_folds` OOF
+   평균 `primary_metric` 을 최대화하는 파라미터 탐색.
+2. 튜닝된(또는 `fixed_params` 만) 파라미터로 `training.cv_folds` StratifiedKFold
+   OOF 평가. 각 fold 의 best_iter 평균이 리포트의 `best_iter (avg)` 로 표기됨.
+3. 학습 데이터 전체로 최종 fit (early_stopping 비활성).
+4. 테스트 데이터로 평가 → 모델별 holdout 점수 산출.
+
 ## 하이퍼파라미터 최적화
 
-각 모델 블록에 `fixed_params` (고정) 와 `search_space` (탐색 범위) 를 둔다.
-`tuning.enabled: true` 이고 모델별 `search_space` 가 비어있지 않으면 Optuna
-TPE 가 KFold OOF `primary_metric` 을 최대화하는 파라미터를 찾는다.
+각 모델 블록에 `fixed_params` (항상 적용) 와 `search_space` (Optuna 탐색 범위) 를
+둔다. `tuning.enabled: true` 이고 모델별 `search_space` 가 비어있지 않으면
+Optuna TPE 가 KFold OOF `primary_metric` 을 최대화하는 파라미터를 찾는다.
+
+### 설정
 
 ```yaml
+training:
+  cv_folds: 5                       # 최종 OOF 평가용 fold 수
+  random_state: 42
+  early_stopping_rounds: 50         # 부스팅 모델 조기종료 라운드 수
+  primary_metric: roc_auc           # 모델 선택 / 튜닝 목적함수
+
 tuning:
   enabled: true
-  n_trials: 30
-  cv_folds: 3
+  n_trials: 30                      # 모델당 시도 횟수
+  timeout: null                     # 초 단위 wall-clock 상한 (null 이면 제한 없음)
+  cv_folds: 3                       # 튜닝 단계 fold 수 (보통 training.cv_folds 보다 작게)
   random_state: 42
 
 models:
@@ -253,11 +330,32 @@ models:
       reg_lambda:    { type: float, low: 1.0e-8, high: 10.0, log: true }
 ```
 
-`search_space` 항목 형식:
+### `search_space` 형식
 
-- `type: float`       — `low`, `high`, `log` (선택, 기본 false)
-- `type: int`         — `low`, `high`, `log` (선택), `step` (선택, 기본 1)
-- `type: categorical` — `choices: [...]`
+- **`type: float`** — `low`, `high`, `log` (선택, 기본 false).
+- **`type: int`** — `low`, `high`, `log` (선택), `step` (선택, 기본 1).
+- **`type: categorical`** — `choices: [...]`.
+
+`search_space` 가 비어있으면 해당 모델은 `fixed_params` 만으로 학습한다 (튜닝
+스킵).
+
+### `primary_metric` 지원 목록
+
+`auto_ml/reporting/metrics.py:SUPPORTED_METRICS` 가 단일 진실 출처:
+`roc_auc | pr_auc | accuracy | precision | recall | f1 | ks | lift`. 모두
+**최대화** 방향이다. 도메인별 권장:
+
+- `roc_auc` — 일반 (기본).
+- `pr_auc` — positive 비율이 매우 낮은 불균형 데이터.
+- `ks` — 신용평점 컨텍스트.
+- `f1` / `precision` / `recall` — 임계값 0.5 기준이라 운영 임계값을 다르게
+  쓰는 경우엔 `roc_auc` / `pr_auc` 가 더 안전.
+
+### early_stopping
+
+`training.early_stopping_rounds` 는 부스팅 모델 세 종류에 모두 적용되지만 내부
+구현은 다르다 (위 모델 래퍼 표 참고). OOF 평가 단계의 fold 학습에는 적용되고
+**최종 fit 에는 적용되지 않는다** (early_stopping 이 검증셋을 요구하므로).
 
 ## 설치
 
