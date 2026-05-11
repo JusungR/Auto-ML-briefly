@@ -110,28 +110,102 @@ preprocessing:
 
 ## 변수 선택 (Stability Selection)
 
-전처리 직후, 모델 학습 직전에 적용되는 선택적 단계이다.
-`feature_selection.enabled: true` 로 켜면 학습 데이터에서 stratified 부분표본을
-반복 추출하여 변수별 선택 빈도를 산출하고, 임계값 이상으로 자주 선택된
-변수만 최종 학습에 사용한다.
+전처리 직후, 모델 학습 직전에 적용되는 선택적 단계이다. 단일 fit 한 번의
+우연성을 제거하기 위해, 학습 데이터에서 임의 부분표본을 반복 추출해
+**변수가 얼마나 일관되게 선택되는지**(selection probability) 를 측정하고,
+임계값 이상으로 자주 선택된 변수만 최종 학습에 사용한다. Meinshausen &
+Bühlmann (2010) 의 절차를 따른다.
+
+### 절차
+
+1. **Stratified 부분표본 추출** — 학습 데이터에서 `subsample_ratio` 비율로
+   `n_subsamples` 번 부분표본을 뽑는다. 클래스 비율이 부분표본마다 유지된다
+   (sklearn `StratifiedShuffleSplit`).
+2. **부분표본별 변수 선택** — `base_estimator` 로 부분표본 한 번당 변수 셋을
+   뽑는다 (자세한 동작은 아래).
+3. **선택 빈도 누적** — 각 변수가 부분표본 몇 번에서 뽑혔는지 세서 빈도
+   (0.0 ~ 1.0) 를 계산한다.
+4. **임계값 이상 채택** — `frequency ≥ threshold` 인 변수만 최종 채택. 부족하면
+   `min_selected` fallback 으로 frequency 상위 N개를 보충한다.
+
+### Base estimator
 
 ```yaml
 feature_selection:
   enabled: true
-  base_estimator: lasso      # lasso (L1 logistic) | lgbm (gain top-K)
-  n_subsamples: 200           # 부분표본 추출 횟수
-  subsample_ratio: 0.5        # 각 부분표본 크기 비율
-  threshold: 0.6              # 채택 임계값 (보통 0.6~0.8)
+  base_estimator: lasso           # lasso | lgbm
+  n_subsamples: 200               # 부분표본 추출 횟수
+  subsample_ratio: 0.5            # 각 부분표본 크기 비율 (Meinshausen 권고 = 0.5)
+  threshold: 0.6                  # 채택 임계값 (보통 0.6~0.8)
   random_state: 42
-  min_selected: 1             # fallback 최소 개수
+  min_selected: 1                 # threshold 이상이 부족할 때 fallback 상위 N개
+
+  # lasso 전용
+  lasso_C: 0.1                    # L1 규제 강도 (낮을수록 더 sparse)
+
+  # lgbm 전용
+  lgbm_top_k: 30                  # 부분표본당 gain 상위 K개 채택
+  lgbm_n_estimators: 100          # 부분표본 학습용 LGBM 트리 수 (가볍게)
+  lgbm_learning_rate: 0.1
 ```
 
-- `base_estimator`
-  - `lasso` — L1 로지스틱 회귀. non-zero coefficient 인 변수를 선택.
-  - `lgbm`  — LightGBM gain 중요도 상위 `lgbm_top_k` 개를 선택.
-- `min_selected` — threshold 이상 변수가 부족하면 frequency 상위 N 개로
-  fallback 하여 모델 입력이 비는 것을 방지한다.
-- 선택 결과는 artifact 메타데이터에 저장되어 스코어링 시 동일 컬럼 셋이 적용된다.
+- **`lasso` (L1 로지스틱 회귀)** — 부분표본 단위 fit 후 **non-zero coefficient**
+  변수를 선택. 선형 신호에 강하고 빠르며 해석이 쉽다. 범주형 컬럼은
+  full-X 기준 **frequency encoding** 으로 1회 사전 변환해 부분표본 마다
+  재인코딩하는 비용·bias 를 피한다.
+- **`lgbm` (LightGBM gain 중요도)** — 부분표본 단위 fit 후 gain 중요도
+  **상위 `lgbm_top_k` 개**(중요도 > 0 만) 를 선택. 비선형·상호작용을 포착하지만
+  부분표본당 fit 비용이 크다. 범주형은 pandas `category` dtype 으로 LightGBM
+  native 처리.
+
+선택 기준이 다르므로 두 base estimator 가 항상 같은 변수를 뽑지 않는다.
+선형 효과는 lasso 가, 상호작용·비선형은 lgbm 이 더 잘 찾는 경향이다.
+
+### 설정 가이드
+
+- **`n_subsamples`** — 표준 100~500. 소규모(< 5k 행)면 50~100 도 충분, 큰
+  데이터·고차원이면 200+. 추정 분산은 √n 으로 줄어든다.
+- **`subsample_ratio`** — 원 논문 권고 0.5. 부분표본이 너무 크면 모든 표본이
+  비슷해져 선택이 안정화되지 않고, 너무 작으면 fit 자체가 불안정해진다.
+- **`threshold`** — 0.6 보수적, 0.8 매우 보수적. false-positive 통제 수준의
+  trade-off. 비교적 적은 채택을 원하면 0.7~0.8.
+- **`min_selected`** — threshold 이상 변수가 부족할 때 frequency 상위 N개로
+  fallback. 모델 입력이 비어 학습이 실패하는 사고를 막는다. 운영 안정성용
+  안전망이며 평소엔 거의 발동되지 않아야 한다 (발동 시 WARN 로그).
+- **`lasso_C`** — `LogisticRegression(C=...)` 의 역규제 강도. **낮을수록 규제 강함
+  → 더 sparse**. 0.1 이 시작점, feature 가 많이 살아 남으면 0.01 로 조이고,
+  너무 잘려나가면 1.0 으로 푼다.
+- **`lgbm_top_k`** — 부분표본당 채택 상한. 일반적으로 전체 feature 의 30~50%.
+  너무 크면 거의 모든 feature 가 한 번씩 뽑혀 threshold 이상이 폭증한다.
+
+### Fallback / 실패 처리
+
+- 부분표본 한 개 fit 이 실패해도 warning 만 남기고 다음 부분표본으로 진행
+  (예: 극단적인 stratify 결과로 한 클래스가 비는 경우).
+- 모든 부분표본이 실패하면 `RuntimeError`. base_estimator 설정 점검 필요.
+- threshold 이상 변수가 `min_selected` 미만이면 frequency 상위 N개로
+  fallback 하고 `fallback_used=True` 가 메타데이터에 기록된다.
+
+### 산출물
+
+`SelectionResult` 에 다음이 담긴다:
+
+- `selected_features` — 채택된 변수 목록 (입력 컬럼 순서 유지).
+- `frequencies` — 모든 변수의 선택 빈도 (0.0 ~ 1.0).
+- `n_subsamples` — 실제 사용된 부분표본 수 (실패 제외).
+- `fallback_used` — fallback 발동 여부.
+
+선택 결과는 artifact 메타데이터에 저장되어 **스코어링 시 동일 컬럼 셋으로 강제 적용**된다.
+HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 라벨이 표기된다
+(예: `examples/credit/` 리포트 6번 섹션 참고).
+
+### 언제 켜고, 언제 끄나
+
+- **켠다** — feature 수가 많고 일부가 noise 일 가능성이 있는 경우, 운영 안정성과
+  설명 가능성이 중요한 경우, 학습/스코어링 컬럼 셋을 명시적으로 줄이고 싶은 경우.
+- **끈다 (`enabled: false`)** — 도메인 지식으로 이미 features.csv 가 정제됐고
+  feature 수가 적은 경우, 부스팅 트리 자체의 내장 selection 으로 충분하다고
+  판단되는 경우.
 
 ## 하이퍼파라미터 최적화
 
