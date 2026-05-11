@@ -3,8 +3,8 @@
 # - 30k 행이라 Titanic 보다 cv_folds / n_trials 를 약간 늘렸다.
 
 # ==== 데이터 ====================================================
-train_data_path: ./data/credit/train.parquet
-test_data_path:  ./data/credit/test.parquet
+train_data_path: ./examples/credit/data/train.parquet
+test_data_path:  ./examples/credit/data/test.parquet
 target_column:   default
 
 features_csv:    ./examples/credit/features.csv
@@ -112,7 +112,7 @@ reporting:
 
 # ==== 스코어링 ==================================================
 scoring:
-  input_path:  ./data/credit/score_input.parquet
+  input_path:  ./examples/credit/data/score_input.parquet
   output_path: ./artifacts/credit/scores/scores.parquet
   id_columns:
     - client_id

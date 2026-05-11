@@ -8,9 +8,9 @@
     2) GitHub mirror (네트워크 1회)
 
 산출:
-    data/credit/train.parquet        — 학습용 (target 포함)
-    data/credit/test.parquet         — 테스트용 (target 포함)
-    data/credit/score_input.parquet  — 스코어링용 (target 제외, id 포함)
+    examples/credit/data/train.parquet        — 학습용 (target 포함)
+    examples/credit/data/test.parquet         — 테스트용 (target 포함)
+    examples/credit/data/score_input.parquet  — 스코어링용 (target 제외, id 포함)
 """
 from __future__ import annotations
 
@@ -34,7 +34,8 @@ ORIG_TARGET = "default.payment.next.month"
 TARGET_COLUMN = "default"
 ID_COLUMN = "client_id"
 
-OUT_DIR = Path("./data/credit")
+# 예시는 self-contained — 데이터도 examples/credit/data 하위에 둔다.
+OUT_DIR = Path(__file__).resolve().parent / "data"
 RANDOM_STATE = 42
 GITHUB_URL = (
     "https://raw.githubusercontent.com/thomasXwang/UCI-Credit-card-defaults/"
