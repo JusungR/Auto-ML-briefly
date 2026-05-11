@@ -207,6 +207,29 @@ HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 �
   feature 수가 적은 경우, 부스팅 트리 자체의 내장 selection 으로 충분하다고
   판단되는 경우.
 
+### 구현 메모
+
+코드: `auto_ml/feature_selection/stability.py` 의 `StabilitySelector`.
+`fit_select(X, y) -> SelectionResult` 가 핵심 entry. 주요 흐름:
+
+1. **base_estimator 별 사전 인코딩 1회** (`_encode_for_lasso` /
+   `_prepare_for_lgbm`). lasso 는 범주형에 **full-X frequency encoding**, lgbm
+   은 pandas `category` dtype 으로 변환. 부분표본마다 재인코딩하지 않아 비용과
+   bias 를 줄인다.
+2. **`StratifiedShuffleSplit(n_splits=n_subsamples, train_size=subsample_ratio,
+   random_state=...)`** 으로 부분표본 인덱스 시퀀스를 생성. 각 인덱스에
+   대해 base 선택 함수 호출.
+3. **부분표본 선택**:
+   - `_lasso_select` — `LogisticRegression(solver="liblinear", C=lasso_C,
+     penalty="l1", max_iter=200)`. `abs(coef) > 1e-8` 인 컬럼을 채택.
+   - `_lgbm_select` — `LGBMClassifier(...)` fit, gain importance 상위
+     `lgbm_top_k` 개 중 `importance > 0` 만 채택.
+4. **실패 처리** — 부분표본 단일 실패는 try/except 로 잡아 warning 후
+   continue. 모든 부분표본이 실패하면 `RuntimeError`.
+5. **threshold + fallback** — `frequencies[f] = count[f] / n_done`. `frequency
+   ≥ threshold` 인 변수만 채택, 부족하면 빈도 상위 `min_selected` 개로
+   fallback 하고 `fallback_used=True` 가 메타에 기록된다.
+
 ## 하이퍼파라미터 최적화
 
 각 모델 블록에 `fixed_params` (고정) 와 `search_space` (탐색 범위) 를 둔다.

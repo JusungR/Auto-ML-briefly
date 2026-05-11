@@ -380,6 +380,36 @@ feature_selection:
 - 결과를 보고 채택이 너무 적으면 `threshold: 0.5` 또는 `lasso_C: 1.0`,
   채택이 너무 많으면 `threshold: 0.8` 또는 `lasso_C: 0.01` 로 조정합니다.
 
+#### 구현 (어떻게 만들었나)
+
+구현은 `auto_ml/feature_selection/stability.py` 의 `StabilitySelector` 클래스에
+있습니다. 핵심 흐름은 다음과 같습니다.
+
+1. **사전 인코딩 1회** — base_estimator 에 맞춰 입력을 미리 준비합니다.
+   부분표본마다 다시 인코딩하지 않아 속도·일관성이 좋습니다.
+   - `lasso`: 범주형은 full-X 기준 **frequency encoding**(값 → 등장 비율),
+     수치형은 NaN → 0 으로 안전화.
+   - `lgbm`: 범주형은 pandas `category` dtype 으로 변환 → LightGBM 이
+     native 처리.
+2. **Stratified 부분표본 반복** — sklearn 의 `StratifiedShuffleSplit
+   (n_splits=n_subsamples, train_size=subsample_ratio, random_state=...)`
+   으로 부분표본 인덱스를 생성하고, 매번 base_estimator 로 변수 셋을 뽑습니다.
+   - `lasso`: `LogisticRegression(solver="liblinear", C=lasso_C, penalty="l1",
+     max_iter=200)` 로 fit → coefficient 가 0 이 아닌 컬럼을 채택.
+   - `lgbm`: `LGBMClassifier(...).fit(X, y, categorical_feature=cat_idx)` 로
+     fit → gain importance 상위 `lgbm_top_k` 개 중 importance > 0 만 채택.
+3. **카운트 누적** — 변수별 채택 횟수를 누적합니다. 부분표본 한 개의 fit 이
+   실패해도(예: 한 클래스가 비는 극단 케이스) warning 로그만 남기고 다음으로
+   넘어갑니다.
+4. **threshold + fallback 적용** — `frequencies[f] = count[f] / n_done` 으로
+   빈도를 계산하고 `frequency ≥ threshold` 인 변수만 채택. 채택 변수가
+   `min_selected` 미만이면 빈도 상위 N 개로 fallback 하고 `fallback_used=True`
+   를 기록합니다.
+
+결과는 `SelectionResult(selected_features, frequencies, threshold,
+n_subsamples, base_estimator, fallback_used)` 로 반환되어 `best.joblib`
+메타데이터에 그대로 보관됩니다.
+
 ---
 
 ## 8. features.csv 작성법
