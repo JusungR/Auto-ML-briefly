@@ -12,6 +12,7 @@ import pandas as pd
 from catboost import CatBoostClassifier, Pool
 
 from auto_ml.models.base import BaseModel
+from auto_ml.models.losses import CatBoostFocalObjective
 
 
 class CatBoostModel(BaseModel):
@@ -32,8 +33,24 @@ class CatBoostModel(BaseModel):
     }
 
     def _resolved_params(self) -> dict[str, Any]:
+        """기본값 ⊕ 사용자 지정값 ⊕ 시드. ``self.loss == "focal"`` 분기 포함.
+
+        CatBoost 는 user-defined loss 에 ``calc_ders_range`` 를 가진 객체를 받는다.
+        ``predict_proba`` 는 custom loss 일 때도 sigmoid 적용된 2D 확률을 반환하므로
+        (실측) 후처리는 불필요하다.
+        """
         merged = {**self.DEFAULT_PARAMS, **self.params}
         merged.setdefault("random_seed", self.random_state)
+
+        if self.loss == "focal":
+            gamma = float(merged.pop("focal_gamma", 2.0))
+            alpha = float(merged.pop("focal_alpha", 0.25))
+            merged["loss_function"] = CatBoostFocalObjective(gamma=gamma, alpha=alpha)
+            self._focal_active = True
+        else:
+            merged.pop("focal_gamma", None)
+            merged.pop("focal_alpha", None)
+            self._focal_active = False
         return merged
 
     def _to_pool(self, X: pd.DataFrame, y: pd.Series | None = None) -> Pool:

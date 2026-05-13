@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from auto_ml.models.base import BaseModel
+from auto_ml.models.losses import _sigmoid, lgb_focal_objective
 
 
 class LGBMModel(BaseModel):
@@ -36,9 +37,27 @@ class LGBMModel(BaseModel):
     }
 
     def _resolved_params(self) -> dict[str, Any]:
-        """기본값 ⊕ 사용자 지정값 ⊕ 시드 를 합친 최종 파라미터를 만든다."""
+        """기본값 ⊕ 사용자 지정값 ⊕ 시드 를 합친 최종 파라미터를 만든다.
+
+        ``self.loss == "focal"`` 이면 LightGBM 의 ``objective`` 를 callable 로
+        덮어쓴다. ``focal_gamma`` / ``focal_alpha`` 는 라이브러리 원본 키가 아니므로
+        반드시 pop 해서 ``LGBMClassifier`` 생성자에 전달되지 않게 한다.
+        """
         merged = {**self.DEFAULT_PARAMS, **self.params}
         merged.setdefault("random_state", self.random_state)
+
+        if self.loss == "focal":
+            gamma = float(merged.pop("focal_gamma", 2.0))
+            alpha = float(merged.pop("focal_alpha", 0.25))
+            # callable 클래스 인스턴스 — joblib pickle 가능하고 LightGBM 의
+            # signature 검사가 2-인자로 정확히 잡힘.
+            merged["objective"] = lgb_focal_objective(gamma=gamma, alpha=alpha)
+            self._focal_active = True
+        else:
+            # 잔여 키 방어적 pop (사용자가 잘못 넣어둔 경우 라이브러리 경고 회피)
+            merged.pop("focal_gamma", None)
+            merged.pop("focal_alpha", None)
+            self._focal_active = False
         return merged
 
     def _to_categorical(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -88,6 +107,12 @@ class LGBMModel(BaseModel):
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         X_in = self._to_categorical(X[self.feature_columns])
+        if self._focal_active:
+            # LightGBM 은 custom objective 를 쓰면 predict_proba 가 (n,) 모양의
+            # raw margin 을 반환하고 경고를 출력한다. raw_score=True 를 명시해
+            # 동일 결과를 깨끗하게 받아 sigmoid 로 [0,1] 확률로 환산한다.
+            raw = self.model.predict(X_in, raw_score=True)
+            return _sigmoid(np.asarray(raw))
         # LGBMClassifier.predict_proba 는 (n_samples, 2) 모양이라 양성 컬럼만 추출
         return self.model.predict_proba(X_in)[:, 1]
 

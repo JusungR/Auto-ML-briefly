@@ -187,6 +187,7 @@ class Trainer:
                 params=params,
                 categorical_columns=cat_cols,
                 random_state=cfg.training.random_state + fold_idx,
+                loss=cfg.models[name].loss,
             )
             model.fit(
                 X_tr, y_tr, X_va, y_va,
@@ -207,6 +208,7 @@ class Trainer:
             params=params,
             categorical_columns=cat_cols,
             random_state=cfg.training.random_state,
+            loss=cfg.models[name].loss,
         )
         final_model.fit(
             X_train, y_train, X_test, y_test,

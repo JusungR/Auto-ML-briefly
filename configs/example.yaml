@@ -76,6 +76,13 @@ tuning:
 # ==== 모델 (3개 동시 학습 후 best 선정) ===========================
 # 각 모델은 fixed_params (고정) + search_space (탐색 범위) 으로 구성한다.
 # search_space 가 비어 있으면 해당 모델은 튜닝을 생략하고 fixed_params 만 사용.
+#
+# 손실 함수 ('loss' 키, 모델별 독립):
+#   logloss (기본) — 라이브러리 native (binary / binary:logistic / Logloss)
+#   focal          — Focal Loss (Lin et al., 2017). 클래스 불균형 데이터에 유리.
+#                    focal_gamma / focal_alpha 를 fixed_params 에 두어 조정 (기본 2.0 / 0.25)
+#                    또는 search_space 에 넣어 탐색 가능.
+#                    호환 가능한 eval_metric: 순위 기반 (auc, AUC) 만 안전.
 models:
   lgbm:
     enabled: true
@@ -114,11 +121,17 @@ models:
 
   xgb:
     enabled: true
+    # loss: focal                       # 데모로 Focal Loss 를 사용하려면 주석 해제
+    # focal 사용 시 fixed_params 의 'objective' 키는 wrapper 가 callable 로 덮어쓰므로
+    # 두어도 무시된다. focal_gamma / focal_alpha 는 fixed_params 또는 search_space 에
+    # 둘 수 있다 (기본 2.0 / 0.25).
     fixed_params:
       objective: binary:logistic
       eval_metric: auc
       tree_method: hist
       n_estimators: 2000
+      # focal_gamma: 2.0
+      # focal_alpha: 0.25
     search_space:
       learning_rate:
         type: float
@@ -146,6 +159,9 @@ models:
         low: 1.0e-8
         high: 10.0
         log: true
+      # focal 하이퍼파라미터도 탐색 가능 (loss: focal 일 때만 의미 있음):
+      # focal_gamma: { type: float, low: 0.5, high: 4.0 }
+      # focal_alpha: { type: float, low: 0.1, high: 0.9 }
 
   catboost:
     enabled: true
