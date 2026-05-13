@@ -183,6 +183,10 @@ class ModelConfig:
         search_space: 베이지안 최적화 탐색 공간 (Optuna 가 샘플링).
                        비어 있으면 해당 모델은 튜닝을 생략하고
                        ``fixed_params`` 만으로 학습한다.
+        loss: 손실 함수 선택. ``"logloss"`` (기본, 라이브러리 native binary
+              log-loss) 또는 ``"focal"`` (Focal Loss, Lin et al. 2017).
+              focal 선택 시 ``focal_gamma`` / ``focal_alpha`` 를 ``fixed_params``
+              (또는 ``search_space``) 에 두어 조정 가능. 기본 gamma=2.0, alpha=0.25.
 
     ``search_space`` 형식 (key 는 모델 라이브러리 원본 파라미터 이름):
 
@@ -203,6 +207,13 @@ class ModelConfig:
     enabled: bool = True
     fixed_params: dict[str, Any] = field(default_factory=dict)
     search_space: dict[str, dict[str, Any]] = field(default_factory=dict)
+    loss: str = "logloss"
+
+    def __post_init__(self) -> None:
+        if self.loss not in {"logloss", "focal"}:
+            raise ValueError(
+                f"ModelConfig.loss must be 'logloss' or 'focal', got {self.loss!r}"
+            )
 
 
 @dataclass

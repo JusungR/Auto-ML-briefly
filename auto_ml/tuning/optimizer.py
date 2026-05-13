@@ -119,6 +119,8 @@ class HyperparameterOptimizer:
         """Optuna 가 반복 호출할 objective 함수를 클로저로 만든다."""
         cfg = self.config
         primary = cfg.training.primary_metric
+        # 튜닝 단계도 동일한 손실 함수를 사용해야 best params 가 실제 학습 경로와 일치한다.
+        loss = cfg.models[model_name].loss
         kf = StratifiedKFold(
             n_splits=cfg.tuning.cv_folds,
             shuffle=True,
@@ -140,6 +142,7 @@ class HyperparameterOptimizer:
                     params=params,
                     categorical_columns=categorical_columns,
                     random_state=cfg.tuning.random_state,
+                    loss=loss,
                 )
                 model.fit(
                     X_tr, y_tr, X_va, y_va,

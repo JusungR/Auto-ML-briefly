@@ -35,15 +35,21 @@ class BaseModel(ABC):
         params: dict[str, Any] | None = None,
         categorical_columns: list[str] | None = None,
         random_state: int = 42,
+        loss: str = "logloss",
     ) -> None:
         self.params = dict(params or {})
         self.categorical_columns = list(categorical_columns or [])
         self.random_state = random_state
+        # 손실 함수 식별자 ("logloss" | "focal"). 래퍼별 _resolved_params 가
+        # 본 값에 따라 custom objective 를 주입하고 _focal_active 플래그를 켠다.
+        self.loss = loss
 
         # 학습 후 채워질 멤버
         self.model: Any = None
         self.feature_columns: list[str] = []
         self.best_iteration: int | None = None
+        # focal 활성 여부 — predict_proba 의 후처리 (sigmoid) 분기에 사용
+        self._focal_active: bool = False
 
     @abstractmethod
     def fit(

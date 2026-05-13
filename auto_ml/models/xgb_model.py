@@ -15,6 +15,7 @@ import xgboost as xgb
 from sklearn.preprocessing import LabelEncoder
 
 from auto_ml.models.base import BaseModel
+from auto_ml.models.losses import xgb_focal_objective
 
 
 class XGBModel(BaseModel):
@@ -44,13 +45,37 @@ class XGBModel(BaseModel):
         params: dict[str, Any] | None = None,
         categorical_columns: list[str] | None = None,
         random_state: int = 42,
+        loss: str = "logloss",
     ) -> None:
-        super().__init__(params=params, categorical_columns=categorical_columns, random_state=random_state)
+        super().__init__(
+            params=params,
+            categorical_columns=categorical_columns,
+            random_state=random_state,
+            loss=loss,
+        )
         self._encoders = {}
 
     def _resolved_params(self) -> dict[str, Any]:
+        """기본값 ⊕ 사용자 지정값 ⊕ 시드. ``self.loss == "focal"`` 분기 포함.
+
+        XGBoost 의 ``predict_proba`` 는 custom objective 일 때도 sigmoid 적용된
+        2D 확률을 반환한다 (실측). 따라서 ``predict_proba`` 후처리는 불필요하다.
+        다만 일부 버전에서 custom obj 시 ``base_score`` 자동 추정이 동작하지 않을
+        수 있으므로 0.5 (margin 0) 으로 명시한다.
+        """
         merged = {**self.DEFAULT_PARAMS, **self.params}
         merged.setdefault("random_state", self.random_state)
+
+        if self.loss == "focal":
+            gamma = float(merged.pop("focal_gamma", 2.0))
+            alpha = float(merged.pop("focal_alpha", 0.25))
+            merged["objective"] = xgb_focal_objective(gamma=gamma, alpha=alpha)
+            merged.setdefault("base_score", 0.5)
+            self._focal_active = True
+        else:
+            merged.pop("focal_gamma", None)
+            merged.pop("focal_alpha", None)
+            self._focal_active = False
         return merged
 
     def _encode_fit(self, X: pd.DataFrame) -> pd.DataFrame:

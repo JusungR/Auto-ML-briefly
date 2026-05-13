@@ -277,11 +277,11 @@ HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 �
 동일한 인터페이스(`fit / predict_proba / feature_importance`) 를 따른다. 차이는
 범주형 처리 방식과 early_stopping 구현이다.
 
-| 모델 | 범주형 처리 | early_stopping 적용 | 비고 |
-|---|---|---|---|
-| `LGBMModel` | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | 가장 빠름 |
-| `XGBModel` | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용, `_encoders` 보관) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
-| `CatBoostModel` | native (`cat_features` 인덱스 전달) | 학습 인자 `early_stopping_rounds` | `allow_writing_files: false` 권장 — 운영 임시 파일 차단 |
+| 모델 | 범주형 처리 | early_stopping 적용 | Focal Loss | 비고 |
+|---|---|---|---|---|
+| `LGBMModel` | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | O (custom objective callable) | 가장 빠름 |
+| `XGBModel` | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용, `_encoders` 보관) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | O (custom objective callable, `base_score=0.5` 자동 세팅) | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
+| `CatBoostModel` | native (`cat_features` 인덱스 전달) | 학습 인자 `early_stopping_rounds` | O (`PythonUserDefinedObjective` 클래스) | `allow_writing_files: false` 권장 — 운영 임시 파일 차단 |
 
 3 모델 모두 동일한 전처리 결과와 (활성 시) 변수 선택 채택 컬럼 셋을 공유한 채
 병렬 학습되고, **테스트 데이터 `primary_metric` 점수가 가장 좋은 모델 1개**가
@@ -297,6 +297,55 @@ best 로 선정되어 artifact 에 저장된다.
    OOF 평가. 각 fold 의 best_iter 평균이 리포트의 `best_iter (avg)` 로 표기됨.
 3. 학습 데이터 전체로 최종 fit (early_stopping 비활성).
 4. 테스트 데이터로 평가 → 모델별 holdout 점수 산출.
+
+## 손실 함수 (Focal Loss)
+
+기본 손실은 라이브러리 native binary log-loss (`binary` / `binary:logistic` /
+`Logloss`) 이다. **클래스 불균형이 큰 데이터** (예: positive 비율 < 5%) 에서는
+**Focal Loss** (Lin et al., 2017, ICCV) 가 잘 맞춘 쉬운 샘플의 손실을
+`(1 - p_t)^gamma` 로 감쇠시켜 어려운 샘플에 학습 신호를 집중시킨다.
+
+```yaml
+models:
+  xgb:
+    loss: focal                       # logloss (기본) | focal — 모델별 독립
+    fixed_params:
+      eval_metric: auc                # AUC 는 rank-invariant → custom obj 와 호환
+      tree_method: hist
+      n_estimators: 2000
+      focal_gamma: 2.0                # easy-example 감쇠 지수 (기본 2.0)
+      focal_alpha: 0.25               # 양성 클래스 가중 (기본 0.25)
+    search_space:
+      # focal 하이퍼파라미터도 탐색 가능:
+      # focal_gamma: { type: float, low: 0.5, high: 4.0 }
+      # focal_alpha: { type: float, low: 0.1, high: 0.9 }
+```
+
+수식 (이진):
+
+    p = sigmoid(z),  p_t = p if y=1 else 1-p,  a_t = alpha if y=1 else 1-alpha
+    FL = -a_t * (1 - p_t)^gamma * log(p_t)
+
+### 동작 / 호환성 메모
+
+- `loss` 는 **모델별로 독립**. 한 모델만 focal 로 두고 나머지는 logloss 로 둘 수 있다.
+- `focal_gamma` / `focal_alpha` 는 `fixed_params` 에 두거나 `search_space` 로 탐색 가능
+  (예약 키 — 라이브러리 원본 파라미터에는 전달되지 않고 wrapper 가 pop).
+- 내부 동작: wrapper 가 `objective` / `loss_function` 를 numpy 기반 callable (또는
+  CatBoost `PythonUserDefinedObjective` 클래스) 로 주입한다. LightGBM 의 경우
+  `predict_proba` 가 raw margin 을 반환하므로 wrapper 가 자체적으로 sigmoid 를 적용
+  ( XGBoost / CatBoost 는 그대로 [0,1] 확률 반환 ). 외부 인터페이스 (`predict_proba` 가
+  1차원 [0,1] ndarray) 는 logloss 와 동일하다.
+- 호환 가능한 `eval_metric` / `metric` 은 **순위 기반** 지표 (`auc`, `pr_auc`, `AUC`).
+  절대값 기반 지표 (`binary_logloss`, `Logloss` 문자열 등) 는 raw score 에 잘못 적용되어
+  의미가 깨지므로 사용하지 않는다.
+- 폐쇄망 친화: 추가 의존성 없음. numpy + 기존 라이브러리만 사용. callable 은 모듈 최상위
+  함수 + `functools.partial` 패턴이라 joblib pickle 가능 — 스코어링 별도 프로세스에서
+  artifact 가 정상 복원된다.
+
+구현: `auto_ml/models/losses.py` 에 `focal_grad_hess`, `lgb_focal_objective`,
+`xgb_focal_objective`, `CatBoostFocalObjective` 가 정의되어 있다. 세 wrapper 의
+`_resolved_params()` 가 `self.loss == "focal"` 일 때 본 모듈의 객체를 주입한다.
 
 ## 하이퍼파라미터 최적화
 
@@ -448,6 +497,9 @@ logging:
 
 - 타깃은 0/1 만 허용 (`utils/validation.py` 가 검증).
 - best 선정은 테스트 데이터 점수 기준.
+- 손실 함수 기본은 binary logloss. `models.<name>.loss: focal` 로 모델별 Focal Loss
+  전환 가능 (`focal_gamma=2.0`, `focal_alpha=0.25` 기본). 자세한 내용은 "## 손실 함수"
+  절 참고.
 - 학습 시 사용한 features 정의가 artifact 메타데이터에 저장되어
   스코어링 시 동일 컬럼 셋·동일 전처리·동일 모델로 처리된다.
 - 스코어링 결과 컬럼: `<id_columns> + score + prediction`.

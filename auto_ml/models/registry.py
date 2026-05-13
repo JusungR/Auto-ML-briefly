@@ -31,6 +31,7 @@ def build_model(
     params: dict[str, Any] | None = None,
     categorical_columns: list[str] | None = None,
     random_state: int = 42,
+    loss: str = "logloss",
 ) -> BaseModel:
     """모델 이름으로 인스턴스를 생성한다.
 
@@ -39,6 +40,7 @@ def build_model(
         params: 모델 라이브러리 원본 하이퍼파라미터.
         categorical_columns: 범주형 컬럼.
         random_state: 시드.
+        loss: 손실 함수 식별자 ("logloss" | "focal"). 기본 logloss.
 
     Returns:
         BaseModel 인스턴스 (아직 fit 되지 않은 상태).
@@ -55,4 +57,5 @@ def build_model(
         params=params,
         categorical_columns=categorical_columns,
         random_state=random_state,
+        loss=loss,
     )
