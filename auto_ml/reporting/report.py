@@ -84,6 +84,7 @@ class ReportBuilder:
         # ----- 모델 비교 표 데이터 -----
         comparison_rows = []
         cv_rows = []
+        overfit_rows = []
         tuning_rows = []
         for name, mr in result.results.items():
             best_iters = [bi for bi in mr.fold_best_iterations if bi is not None]
@@ -94,6 +95,17 @@ class ReportBuilder:
                 "best_iter_avg": avg_iter,
             })
             cv_rows.append({"name": name, "metrics": mr.cv_metrics})
+            # Overfit 점검: in-sample train fit 과 test 의 metric 별 gap(train-test).
+            # 양수 gap 이 클수록 모델이 학습 데이터를 외운 정도가 크다는 신호.
+            gaps = {
+                m: mr.train_metrics[m] - mr.test_metrics[m] for m in METRIC_NAMES
+            }
+            overfit_rows.append({
+                "name": name,
+                "train_metrics": mr.train_metrics,
+                "test_metrics": mr.test_metrics,
+                "gaps": gaps,
+            })
             tuning_rows.append({
                 "name": name,
                 "tuned": mr.tuning is not None,
@@ -149,6 +161,7 @@ class ReportBuilder:
             metric_names=METRIC_NAMES,
             comparison_rows=comparison_rows,
             cv_rows=cv_rows,
+            overfit_rows=overfit_rows,
             tuning_rows=tuning_rows,
             roc_chart=roc_chart,
             pr_chart=pr_chart,

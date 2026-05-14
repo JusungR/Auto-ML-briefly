@@ -37,8 +37,10 @@ class ModelResult:
     params: dict[str, Any]                            # 실제로 사용된 파라미터 (튜닝 결과 포함)
     oof_proba: np.ndarray                             # 학습 데이터의 fold 별 OOF 확률
     test_proba: np.ndarray                            # 테스트 데이터에 대한 확률
+    train_proba: np.ndarray                           # 학습 데이터에 대한 in-sample 확률 (overfit 점검용)
     cv_metrics: dict[str, float]                      # OOF 기반 지표
     test_metrics: dict[str, float]                    # 테스트 기반 지표
+    train_metrics: dict[str, float]                   # in-sample (final_model fit→predict on X_train) 지표
     feature_importance: dict[str, float]              # gain 기준 중요도
     fold_best_iterations: list[int | None] = field(default_factory=list)
     tuning: TuningResult | None = None                # 튜닝을 수행한 경우의 결과
@@ -51,6 +53,7 @@ class TrainingResult:
     results: dict[str, ModelResult]                   # 모델 이름 → 결과
     best_model_name: str
     primary_metric: str
+    train_y: np.ndarray                               # 리포트 overfit 점검용
     test_y: np.ndarray                                # 리포트 차트용
     feature_columns: list[str]
 
@@ -114,6 +117,7 @@ class Trainer:
             results=results,
             best_model_name=best_name,
             primary_metric=primary,
+            train_y=y_train.to_numpy(),
             test_y=y_test.to_numpy(),
             feature_columns=list(X_train.columns),
         )
@@ -215,6 +219,10 @@ class Trainer:
             early_stopping_rounds=cfg.training.early_stopping_rounds,
         )
         test_proba = final_model.predict_proba(X_test)
+        # In-sample 점수 — 학습 데이터에 fit 한 모델로 같은 학습 데이터를 다시 스코어링.
+        # OOF 와 달리 unbiased 가 아니라 의도적으로 over-optimistic 한 추정치이며,
+        # test_metrics 와의 gap 이 메모리제이션(overfit) 강도 신호가 된다.
+        train_proba = final_model.predict_proba(X_train)
 
         return ModelResult(
             name=name,
@@ -222,8 +230,10 @@ class Trainer:
             params=params,
             oof_proba=oof_proba,
             test_proba=test_proba,
+            train_proba=train_proba,
             cv_metrics=compute_metrics(y_train.to_numpy(), oof_proba),
             test_metrics=compute_metrics(y_test.to_numpy(), test_proba),
+            train_metrics=compute_metrics(y_train.to_numpy(), train_proba),
             feature_importance=final_model.feature_importance(),
             fold_best_iterations=fold_best_iters,
             tuning=tuning_result,

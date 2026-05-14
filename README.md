@@ -30,7 +30,8 @@ auto_ml/
    (c) 학습 전체로 최종 fit → (d) 테스트 데이터로 평가. primary_metric
    (기본 ROC-AUC) 기준으로 best 모델을 선정한다.
 4. **보고서 산출** — HTML / PDF 동일 내용 (Jinja2 + WeasyPrint). 모델 비교표,
-   튜닝 결과, ROC / PR 곡선, feature importance, score 분포, confusion matrix 포함.
+   CV(OOF) 비교, **오버핏 점검 (Train vs Holdout, Δ)**, 튜닝 결과, ROC / PR 곡선,
+   feature importance, score 분포, confusion matrix 포함.
 5. **주기 스코어링** — 단일 artifact (preprocessor + model + metadata)
    파일 1개 + 설정 YAML 1개로 운영 가능. cron 등에서 `auto-ml-score` 호출.
 
@@ -238,7 +239,7 @@ feature_selection:
 
 선택 결과는 artifact 메타데이터에 저장되어 **스코어링 시 동일 컬럼 셋으로 강제 적용**된다.
 HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 라벨이 표기된다
-(예: `examples/credit/` 리포트 6번 섹션 참고).
+(예: `examples/credit/` 리포트 7번 섹션 참고).
 
 ### 언제 켜고, 언제 끄나
 
