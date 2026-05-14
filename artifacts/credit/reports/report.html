@@ -121,6 +121,20 @@
   .best td { background: #e8f3ff !important; font-weight: 700; color: #1a56db; }
   .best td.left { color: #1a56db; }
 
+  /* ── overfit gap 셀 색상 (Δ = train - test) ── */
+  /* 양수 gap 이 클수록 in-sample 점수가 holdout 보다 높다는 뜻 → 메모리제이션 신호 */
+  td.gap-high { color: #991b1b; font-weight: 700; }   /* |Δ| ≥ 0.10 */
+  td.gap-mid  { color: #b45309; font-weight: 600; }   /* 0.05 ≤ |Δ| < 0.10 */
+  td.gap-low  { color: #6b7280; }                      /* |Δ| < 0.05 */
+
+  /* overfit 표 그룹 헤더 (metric 별 colspan=3) */
+  thead tr.group-row { background: #1a56db; color: #fff; }
+  thead tr.sub-row   { background: #2563eb; color: #fff; }
+  thead tr.sub-row th { font-size: 10px; padding: 4px 6px; }
+  thead tr.group-row th { border-left: 1px solid rgba(255,255,255,0.25); }
+  thead tr.group-row th:first-child { border-left: none; }
+  thead tr.group-row th.left { text-align: left; }
+
   /* ── 뱃지 ── */
   .badge {
     display: inline-block;
@@ -183,7 +197,7 @@
 <div class="report-header">
   <h1>Credit Card Default Auto-ML Report</h1>
   <div class="header-pills">
-    <span class="pill">🕐 2026-05-08 12:37:04 UTC</span>
+    <span class="pill">🕐 2026-05-14 13:03:05 UTC</span>
     <span class="pill highlight">🏆 Best: <strong>catboost</strong> &nbsp;roc_auc = 0.7790</span>
     <span class="pill">학습 24000행</span>
     <span class="pill">테스트 6000행</span>
@@ -275,8 +289,193 @@
   </table>
 </div>
 
-<!-- ═══ 3. 곡선 비교 ═══ -->
-<h2><span class="sec-num">3</span> 곡선 비교</h2>
+<!-- ═══ 3. 오버핏 점검 (Train vs Holdout) ═══ -->
+<h2><span class="sec-num">3</span> 오버핏 점검 (Train vs Holdout)</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr class="group-row">
+        <th class="left" rowspan="2">model</th>
+        <th colspan="3">roc_auc</th><th colspan="3">ks</th><th colspan="3">lift</th><th colspan="3">accuracy</th><th colspan="3">precision</th><th colspan="3">recall</th><th colspan="3">f1</th><th colspan="3">pr_auc</th>
+      </tr>
+      <tr class="sub-row">
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+          <th>Train</th><th>Test</th><th>Δ</th>
+        
+      </tr>
+    </thead>
+    <tbody>
+    
+      <tr class="">
+        <td class="left">
+          lgbm
+          
+        </td>
+        
+          
+          <td>0.8268</td>
+          <td>0.7748</td>
+          <td class="gap-mid">+0.0520</td>
+        
+          
+          <td>0.5026</td>
+          <td>0.4271</td>
+          <td class="gap-mid">+0.0754</td>
+        
+          
+          <td>3.2360</td>
+          <td>3.1424</td>
+          <td class="gap-mid">+0.0936</td>
+        
+          
+          <td>0.7910</td>
+          <td>0.7917</td>
+          <td class="gap-low">-0.0006</td>
+        
+          
+          <td>0.7988</td>
+          <td>0.7939</td>
+          <td class="gap-low">+0.0049</td>
+        
+          
+          <td>0.0740</td>
+          <td>0.0784</td>
+          <td class="gap-low">-0.0043</td>
+        
+          
+          <td>0.1355</td>
+          <td>0.1427</td>
+          <td class="gap-low">-0.0072</td>
+        
+          
+          <td>0.5951</td>
+          <td>0.5468</td>
+          <td class="gap-low">+0.0483</td>
+        
+      </tr>
+    
+      <tr class="">
+        <td class="left">
+          xgb
+          
+        </td>
+        
+          
+          <td>0.8138</td>
+          <td>0.7773</td>
+          <td class="gap-low">+0.0365</td>
+        
+          
+          <td>0.4758</td>
+          <td>0.4233</td>
+          <td class="gap-mid">+0.0525</td>
+        
+          
+          <td>3.3754</td>
+          <td>3.1575</td>
+          <td class="gap-high">+0.2179</td>
+        
+          
+          <td>0.8295</td>
+          <td>0.8182</td>
+          <td class="gap-low">+0.0113</td>
+        
+          
+          <td>0.7234</td>
+          <td>0.6720</td>
+          <td class="gap-mid">+0.0514</td>
+        
+          
+          <td>0.3709</td>
+          <td>0.3474</td>
+          <td class="gap-low">+0.0235</td>
+        
+          
+          <td>0.4903</td>
+          <td>0.4580</td>
+          <td class="gap-low">+0.0323</td>
+        
+          
+          <td>0.6226</td>
+          <td>0.5534</td>
+          <td class="gap-mid">+0.0692</td>
+        
+      </tr>
+    
+      <tr class="best">
+        <td class="left">
+          catboost
+          <span class="badge badge-blue">BEST</span>
+        </td>
+        
+          
+          <td>0.8077</td>
+          <td>0.7790</td>
+          <td class="gap-low">+0.0287</td>
+        
+          
+          <td>0.4624</td>
+          <td>0.4340</td>
+          <td class="gap-low">+0.0284</td>
+        
+          
+          <td>3.3490</td>
+          <td>3.1198</td>
+          <td class="gap-high">+0.2292</td>
+        
+          
+          <td>0.8287</td>
+          <td>0.8178</td>
+          <td class="gap-low">+0.0109</td>
+        
+          
+          <td>0.7043</td>
+          <td>0.6590</td>
+          <td class="gap-low">+0.0453</td>
+        
+          
+          <td>0.3890</td>
+          <td>0.3655</td>
+          <td class="gap-low">+0.0235</td>
+        
+          
+          <td>0.5012</td>
+          <td>0.4702</td>
+          <td class="gap-low">+0.0310</td>
+        
+          
+          <td>0.6095</td>
+          <td>0.5594</td>
+          <td class="gap-mid">+0.0502</td>
+        
+      </tr>
+    
+    </tbody>
+  </table>
+  <div class="card-body" style="font-size:10.5px;color:#6b7280;">
+    Δ = Train − Test. Train 은 final 모델을 학습 데이터에 fit 한 뒤 동일 학습 데이터로 in-sample 스코어링한 결과로,
+    의도적으로 over-optimistic 한 추정치다. Test 와의 양의 gap 이 클수록 메모리제이션(overfit) 신호이며,
+    <span class="gap-mid">|Δ| ≥ 0.05</span> / <span class="gap-high">|Δ| ≥ 0.10</span> 인 셀은 색으로 강조한다.
+    (정확한 임계치는 도메인/지표에 따라 다르며 본 색은 참고용.)
+  </div>
+</div>
+
+<!-- ═══ 4. 곡선 비교 ═══ -->
+<h2><span class="sec-num">4</span> 곡선 비교</h2>
 <div class="grid-2">
   <div class="chart-box">
     <h3>ROC Curve</h3>
@@ -288,8 +487,8 @@
   </div>
 </div>
 
-<!-- ═══ 4. Best 모델 상세 ═══ -->
-<h2><span class="sec-num">4</span> Best 모델 상세 — catboost</h2>
+<!-- ═══ 5. Best 모델 상세 ═══ -->
+<h2><span class="sec-num">5</span> Best 모델 상세 — catboost</h2>
 
 <h3>Feature Importance (top 30)</h3>
 <div class="card" style="display: flex; gap: 16px; padding: 12px 14px;">
@@ -643,8 +842,8 @@
   </table>
 </div>
 
-<!-- ═══ 5. 학습 설정 요약 ═══ -->
-<h2><span class="sec-num">5</span> 학습 설정 요약</h2>
+<!-- ═══ 6. 학습 설정 요약 ═══ -->
+<h2><span class="sec-num">6</span> 학습 설정 요약</h2>
 <div class="card">
   <table>
     <thead>
@@ -746,9 +945,9 @@
   </table>
 </div>
 
-<!-- ═══ 6. 변수 선택 (optional) ═══ -->
+<!-- ═══ 7. 변수 선택 (optional) ═══ -->
 
-<h2><span class="sec-num">6</span> 변수 선택 (Stability Selection)</h2>
+<h2><span class="sec-num">7</span> 변수 선택 (Stability Selection)</h2>
 <div class="header-pills" style="margin-bottom:12px;">
   <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
     base: <strong>lasso</strong>
@@ -1197,7 +1396,7 @@
 
 <!-- ═══ 푸터 ═══ -->
 <div class="footer">
-  auto_ml v0.1.0 &nbsp;·&nbsp; 본 리포트는 자동 생성됨 &nbsp;·&nbsp; 2026-05-08 12:37:04 UTC
+  auto_ml v0.1.0 &nbsp;·&nbsp; 본 리포트는 자동 생성됨 &nbsp;·&nbsp; 2026-05-14 13:03:05 UTC
 </div>
 
 </body>
