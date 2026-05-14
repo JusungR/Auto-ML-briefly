@@ -121,6 +121,20 @@
   .best td { background: #e8f3ff !important; font-weight: 700; color: #1a56db; }
   .best td.left { color: #1a56db; }
 
+  /* ── overfit gap 셀 색상 (Δ = train - test) ── */
+  /* 양수 gap 이 클수록 in-sample 점수가 holdout 보다 높다는 뜻 → 메모리제이션 신호 */
+  td.gap-high { color: #991b1b; font-weight: 700; }   /* |Δ| ≥ 0.10 */
+  td.gap-mid  { color: #b45309; font-weight: 600; }   /* 0.05 ≤ |Δ| < 0.10 */
+  td.gap-low  { color: #6b7280; }                      /* |Δ| < 0.05 */
+
+  /* overfit 표 그룹 헤더 (metric 별 colspan=3) */
+  thead tr.group-row { background: #1a56db; color: #fff; }
+  thead tr.sub-row   { background: #2563eb; color: #fff; }
+  thead tr.sub-row th { font-size: 10px; padding: 4px 6px; }
+  thead tr.group-row th { border-left: 1px solid rgba(255,255,255,0.25); }
+  thead tr.group-row th:first-child { border-left: none; }
+  thead tr.group-row th.left { text-align: left; }
+
   /* ── 뱃지 ── */
   .badge {
     display: inline-block;
@@ -241,8 +255,48 @@
   </table>
 </div>
 
-<!-- ═══ 3. 곡선 비교 ═══ -->
-<h2><span class="sec-num">3</span> 곡선 비교</h2>
+<!-- ═══ 3. 오버핏 점검 (Train vs Holdout) ═══ -->
+<h2><span class="sec-num">3</span> 오버핏 점검 (Train vs Holdout)</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr class="group-row">
+        <th class="left" rowspan="2">model</th>
+        {% for m in metric_names %}<th colspan="3">{{ m }}</th>{% endfor %}
+      </tr>
+      <tr class="sub-row">
+        {% for m in metric_names %}
+          <th>Train</th><th>Test</th><th>Δ</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in overfit_rows %}
+      <tr class="{% if row.name == best_model %}best{% endif %}">
+        <td class="left">
+          {{ row.name }}
+          {% if row.name == best_model %}<span class="badge badge-blue">BEST</span>{% endif %}
+        </td>
+        {% for m in metric_names %}
+          {% set g = row.gaps[m] %}
+          <td>{{ '%.4f'|format(row.train_metrics[m]) }}</td>
+          <td>{{ '%.4f'|format(row.test_metrics[m]) }}</td>
+          <td class="{% if g|abs >= 0.10 %}gap-high{% elif g|abs >= 0.05 %}gap-mid{% else %}gap-low{% endif %}">{{ '%+.4f'|format(g) }}</td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="card-body" style="font-size:10.5px;color:#6b7280;">
+    Δ = Train − Test. Train 은 final 모델을 학습 데이터에 fit 한 뒤 동일 학습 데이터로 in-sample 스코어링한 결과로,
+    의도적으로 over-optimistic 한 추정치다. Test 와의 양의 gap 이 클수록 메모리제이션(overfit) 신호이며,
+    <span class="gap-mid">|Δ| ≥ 0.05</span> / <span class="gap-high">|Δ| ≥ 0.10</span> 인 셀은 색으로 강조한다.
+    (정확한 임계치는 도메인/지표에 따라 다르며 본 색은 참고용.)
+  </div>
+</div>
+
+<!-- ═══ 4. 곡선 비교 ═══ -->
+<h2><span class="sec-num">4</span> 곡선 비교</h2>
 <div class="grid-2">
   <div class="chart-box">
     <h3>ROC Curve</h3>
@@ -254,8 +308,8 @@
   </div>
 </div>
 
-<!-- ═══ 4. Best 모델 상세 ═══ -->
-<h2><span class="sec-num">4</span> Best 모델 상세 — {{ best_model }}</h2>
+<!-- ═══ 5. Best 모델 상세 ═══ -->
+<h2><span class="sec-num">5</span> Best 모델 상세 — {{ best_model }}</h2>
 
 <h3>Feature Importance (top {{ top_features }})</h3>
 <div class="card" style="display: flex; gap: 16px; padding: 12px 14px;">
@@ -372,8 +426,8 @@
   </table>
 </div>
 
-<!-- ═══ 5. 학습 설정 요약 ═══ -->
-<h2><span class="sec-num">5</span> 학습 설정 요약</h2>
+<!-- ═══ 6. 학습 설정 요약 ═══ -->
+<h2><span class="sec-num">6</span> 학습 설정 요약</h2>
 <div class="card">
   <table>
     <thead>
@@ -390,9 +444,9 @@
   </table>
 </div>
 
-<!-- ═══ 6. 변수 선택 (optional) ═══ -->
+<!-- ═══ 7. 변수 선택 (optional) ═══ -->
 {% if selection %}
-<h2><span class="sec-num">6</span> 변수 선택 (Stability Selection)</h2>
+<h2><span class="sec-num">7</span> 변수 선택 (Stability Selection)</h2>
 <div class="header-pills" style="margin-bottom:12px;">
   <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
     base: <strong>{{ selection.base_estimator }}</strong>
