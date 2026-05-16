@@ -428,6 +428,7 @@ python examples/make_dummy_data.py
 # 2) 학습 — 산출물:
 #    artifacts/models/best.joblib
 #    artifacts/reports/report.html, report.pdf
+#    artifacts/predictions/test_predictions.parquet  (id + score + prediction + target)
 auto-ml-train --config configs/example.yaml
 
 # 3) 스코어링 — 산출물:
@@ -504,6 +505,9 @@ logging:
 - 학습 시 사용한 features 정의가 artifact 메타데이터에 저장되어
   스코어링 시 동일 컬럼 셋·동일 전처리·동일 모델로 처리된다.
 - 스코어링 결과 컬럼: `<id_columns> + score + prediction`.
+- 학습 시 best 모델의 holdout 예측을 함께 내보낸다 — `<artifact_dir>/../predictions/test_predictions.parquet`,
+  스키마 `<id_columns> + score + prediction + <target_column>`. 외부 BI / 추가 진단용
+  (overfit 검증, 임계값 튜닝 등).
 - 학습 데이터에서 어떤 수치형 컬럼이 전부 NaN 이면 결측·이상치 단계가
   명시적 `ValueError` 로 실패한다 (silent NaN 전파 방지). `features.csv` 의
   `used` 를 false 로 두거나 해당 단계를 비활성화/`constant` 전략으로 전환.
