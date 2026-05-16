@@ -193,6 +193,28 @@ class AutoMLPipeline:
         outputs["artifact"] = artifact_path
         logger.info("Saved artifact: %s", artifact_path)
 
+        # 7) test 예측 export ----------------------------------------------
+        # 외부 분석용 (BI / 추가 진단) — best 모델의 holdout 예측을 키와 함께 저장.
+        # 스키마: <id_columns> + score + prediction + <target_column>.
+        # 운영 스코어링(auto-ml-score) 출력과 동일한 컬럼 규약을 유지하되 actual 추가.
+        predictions_dir = Path(cfg.artifact_dir).parent / "predictions"
+        predictions_dir.mkdir(parents=True, exist_ok=True)
+        predictions_path = predictions_dir / "test_predictions.parquet"
+        threshold = cfg.scoring.threshold
+        keep_id_cols = [c for c in cfg.id_columns if c in df_test.columns]
+        pred_df = pd.DataFrame(index=df_test.index)
+        for col in keep_id_cols:
+            pred_df[col] = df_test[col].values
+        pred_df["score"] = best_result.test_proba
+        pred_df["prediction"] = (best_result.test_proba >= threshold).astype(int)
+        pred_df[cfg.target_column] = y_test.values
+        pred_df.to_parquet(predictions_path, index=False)
+        outputs["test_predictions"] = predictions_path
+        logger.info(
+            "Wrote test predictions: %s (rows=%d, id_cols=%s)",
+            predictions_path, len(pred_df), keep_id_cols or "(none)",
+        )
+
         # ----- 종료 요약 ------------------------------------------------
         elapsed = time.perf_counter() - started_at
         logger.info("=" * 60)
