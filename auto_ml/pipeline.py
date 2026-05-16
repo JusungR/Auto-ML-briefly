@@ -25,7 +25,7 @@ from auto_ml.feature_selection import SelectionResult, StabilitySelector
 from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting.report import ReportBuilder
-from auto_ml.utils.io import ArtifactMetadata, save_artifact
+from auto_ml.utils.io import ArtifactMetadata, save_artifact, summarize_dataframe
 from auto_ml.utils.logger import get_logger, setup_logging
 from auto_ml.utils.validation import validate_binary_target, validate_schema
 
@@ -70,8 +70,10 @@ class AutoMLPipeline:
         # 1) 데이터 로드 + 검증 ---------------------------------------------
         logger.info("Loading train data: %s", cfg.train_data_path)
         df_train = pd.read_parquet(cfg.train_data_path)
+        logger.info("Train: %s", summarize_dataframe(df_train, cfg.target_column))
         logger.info("Loading test data:  %s", cfg.test_data_path)
         df_test = pd.read_parquet(cfg.test_data_path)
+        logger.info("Test:  %s", summarize_dataframe(df_test, cfg.target_column))
 
         validate_schema(df_train, [cfg.target_column])
         validate_schema(df_test, [cfg.target_column])

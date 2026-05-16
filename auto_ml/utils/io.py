@@ -7,6 +7,9 @@ artifact 번들 = 단일 joblib 파일 1개에 다음을 함께 저장한다:
 
 이렇게 한 번들로 묶으면 폐쇄 환경 이관이 단순해진다 — joblib 파일과
 스코어링용 config YAML 두 개만 옮기면 즉시 운영이 가능하다.
+
+부가로 학습/스코어링 진입점에서 데이터 로드 직후 한 줄 요약을 찍어주기 위한
+``summarize_dataframe`` 도 제공한다.
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import pandas as pd
 
 
 @dataclass
@@ -87,3 +91,39 @@ def load_artifact(path: str | Path) -> dict[str, Any]:
         ``{"preprocessor", "model", "metadata"}`` 키를 갖는 dict.
     """
     return joblib.load(Path(path))
+
+
+def summarize_dataframe(
+    df: pd.DataFrame,
+    target_column: str | None = None,
+) -> str:
+    """학습/스코어링 진입점에서 데이터 로드 직후 찍을 한 줄 요약을 만든다.
+
+    Args:
+        df: 요약할 DataFrame.
+        target_column: 지정 시 클래스 비율을 함께 표시. 컬럼이 없으면 무시.
+
+    Returns:
+        ``"N rows × M cols | target '<col>': k/N positive (P%) | missing X.XX%"`` 형식의
+        한 줄 문자열. target 이 없거나 컬럼이 누락되면 해당 절을 생략한다.
+
+    예:
+        Train: 24000 rows × 25 cols | target 'default': 5331/24000 positive (22.21%) | missing 0.00%
+    """
+    n_rows, n_cols = df.shape
+    parts = [f"{n_rows:,} rows × {n_cols} cols"]
+
+    if target_column is not None and target_column in df.columns:
+        y = df[target_column]
+        n_total = len(y)
+        n_pos = int((y == 1).sum())
+        rate = (n_pos / n_total * 100.0) if n_total > 0 else 0.0
+        parts.append(f"target '{target_column}': {n_pos:,}/{n_total:,} positive ({rate:.2f}%)")
+
+    # 전체 cell 중 NaN 비율 — 부분 결측 규모 감 잡기용 (컬럼별 상세는 전처리 로그에서)
+    n_cells = n_rows * n_cols
+    if n_cells > 0:
+        miss_rate = float(df.isna().sum().sum()) / n_cells * 100.0
+        parts.append(f"missing {miss_rate:.2f}%")
+
+    return " | ".join(parts)
