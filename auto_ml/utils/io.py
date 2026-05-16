@@ -93,6 +93,89 @@ def load_artifact(path: str | Path) -> dict[str, Any]:
     return joblib.load(Path(path))
 
 
+def find_degenerate_columns(
+    df: pd.DataFrame,
+    columns: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """모델 입력으로 의미 없는 (degenerate) 컬럼을 찾아 분류해 반환한다.
+
+    범주:
+        - ``all_null``: 모든 값이 NaN — 학습/스코어링 신호가 전혀 없다.
+        - ``all_zero``: NaN 이 아닌 값이 모두 0 — 보통 데이터 파이프라인 오류 또는
+          의미 없는 카운터.
+        - ``constant_nonzero``: NaN 제외 unique 값이 1개이며 0 이 아닌 상수.
+          모델에 정보를 주지 않는다.
+
+    Args:
+        df: 검사할 DataFrame.
+        columns: 검사 대상 컬럼. None 이면 모든 컬럼.
+
+    Returns:
+        ``{"all_null": [...], "all_zero": [...], "constant_nonzero": [...]}``.
+        세 키 모두 항상 존재하며 비어 있을 수 있다.
+    """
+    cols = columns if columns is not None else list(df.columns)
+    out: dict[str, list[str]] = {"all_null": [], "all_zero": [], "constant_nonzero": []}
+    for col in cols:
+        if col not in df.columns:
+            continue
+        s = df[col]
+        if s.isna().all():
+            out["all_null"].append(col)
+            continue
+        non_na = s.dropna()
+        # 수치형이면 numeric 비교가 가능. 범주형/문자열은 0 비교가 안 되므로 skip.
+        if pd.api.types.is_numeric_dtype(s):
+            if (non_na == 0).all():
+                out["all_zero"].append(col)
+                continue
+        # NaN 제외 unique 가 1개면 상수 (위에서 0 케이스는 이미 처리됨)
+        if non_na.nunique() == 1:
+            out["constant_nonzero"].append(col)
+    return out
+
+
+def warn_degenerate_columns(
+    df: pd.DataFrame,
+    columns: list[str] | None = None,
+    *,
+    logger: Any = None,
+    context: str = "data",
+) -> dict[str, list[str]]:
+    """``find_degenerate_columns`` 결과를 ``logger.warning`` 으로 띄운다.
+
+    Args:
+        df: 검사 대상.
+        columns: 검사 대상 컬럼. None 이면 전체.
+        logger: 표준 logging.Logger. None 이면 경고를 띄우지 않고 결과만 반환.
+        context: 로그 메시지의 prefix 문자열 (예: "train", "test", "score_input").
+
+    Returns:
+        ``find_degenerate_columns`` 와 동일한 dict.
+    """
+    found = find_degenerate_columns(df, columns)
+    if logger is not None:
+        if found["all_null"]:
+            logger.warning(
+                "[%s] All-NaN columns (%d): %s — 컬럼 자체가 빈 값. features.csv 의 'used'"
+                " 를 false 로 두거나 데이터 파이프라인 점검 필요.",
+                context, len(found["all_null"]), found["all_null"],
+            )
+        if found["all_zero"]:
+            logger.warning(
+                "[%s] All-zero columns (%d): %s — NaN 제외 모든 값이 0. 카운터 누락"
+                " 또는 ETL 오류일 가능성.",
+                context, len(found["all_zero"]), found["all_zero"],
+            )
+        if found["constant_nonzero"]:
+            logger.warning(
+                "[%s] Constant columns (%d): %s — 단일 값으로 채워져 모델에 정보를"
+                " 주지 못함. features.csv 에서 제거 권장.",
+                context, len(found["constant_nonzero"]), found["constant_nonzero"],
+            )
+    return found
+
+
 def summarize_dataframe(
     df: pd.DataFrame,
     target_column: str | None = None,

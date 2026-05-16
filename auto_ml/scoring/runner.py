@@ -17,7 +17,7 @@ import pandas as pd
 
 from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.scoring.scorer import Scorer
-from auto_ml.utils.io import summarize_dataframe
+from auto_ml.utils.io import summarize_dataframe, warn_degenerate_columns
 from auto_ml.utils.logger import get_logger, setup_logging
 
 logger = get_logger("scoring.runner")
@@ -66,6 +66,13 @@ def run_scoring(config: AutoMLConfig) -> Path:
     df = pd.read_parquet(input_path)
     # 스코어링 입력은 target 이 없으므로 클래스 비율 절은 생략된다.
     logger.info("Input: %s", summarize_dataframe(df))
+    # 모델 feature 컬럼 한정 — 스코어링 입력이 학습 시점과 분포가 깨졌는지 조기 감지.
+    warn_degenerate_columns(
+        df,
+        columns=list(scorer.metadata.feature_columns),
+        logger=logger,
+        context="score_input",
+    )
 
     out = scorer.score(
         df,

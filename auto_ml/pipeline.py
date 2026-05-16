@@ -25,7 +25,12 @@ from auto_ml.feature_selection import SelectionResult, StabilitySelector
 from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting.report import ReportBuilder
-from auto_ml.utils.io import ArtifactMetadata, save_artifact, summarize_dataframe
+from auto_ml.utils.io import (
+    ArtifactMetadata,
+    save_artifact,
+    summarize_dataframe,
+    warn_degenerate_columns,
+)
 from auto_ml.utils.logger import get_logger, setup_logging
 from auto_ml.utils.validation import validate_binary_target, validate_schema
 
@@ -91,6 +96,12 @@ class AutoMLPipeline:
         logger.info(
             "Features — total=%d, numeric=%d, categorical=%d",
             len(feature_columns), len(numeric_columns), len(categorical_columns),
+        )
+
+        # 모델에 의미 없는 컬럼 (all-NaN / all-zero / constant) 조기 경고.
+        # 학습 데이터 기준 — test 만 상수인 경우는 정상적일 수 있어 train 만 점검.
+        warn_degenerate_columns(
+            df_train, columns=feature_columns, logger=logger, context="train",
         )
 
         # 학습/테스트 데이터 양쪽에 모든 feature 가 있어야 한다.
