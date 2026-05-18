@@ -113,11 +113,22 @@ models:
         type: int
         low: 10
         high: 200
-      reg_lambda:
+      # ---- 가중치 정규화 (과적합 완화) ----
+      reg_alpha:                              # L1 — 가중치 sparse 화 → 변수 선택 효과
         type: float
         low: 1.0e-8
         high: 10.0
         log: true
+      reg_lambda:                             # L2 — 가중치 크기 제약
+        type: float
+        low: 1.0e-8
+        high: 10.0
+        log: true
+      # ---- 분할 보수성 ----
+      min_gain_to_split:                      # 분할 이득이 본 값 미만이면 분할 중단
+        type: float
+        low: 0.0
+        high: 0.5
 
   xgb:
     enabled: true
@@ -154,11 +165,22 @@ models:
         type: float
         low: 1.0
         high: 20.0
-      reg_lambda:
+      # ---- 가중치 정규화 (과적합 완화) ----
+      reg_alpha:                              # L1 — 가중치 sparse 화
         type: float
         low: 1.0e-8
         high: 10.0
         log: true
+      reg_lambda:                             # L2 — 가중치 크기 제약
+        type: float
+        low: 1.0e-8
+        high: 10.0
+        log: true
+      # ---- 분할 보수성 (LGBM 의 min_gain_to_split 과 동일 개념) ----
+      gamma:                                  # 분할이 본 값 이상의 이득을 줘야만 수행
+        type: float
+        low: 0.0
+        high: 5.0
       # focal 하이퍼파라미터도 탐색 가능 (loss: focal 일 때만 의미 있음):
       # focal_gamma: { type: float, low: 0.5, high: 4.0 }
       # focal_alpha: { type: float, low: 0.1, high: 0.9 }
@@ -181,11 +203,18 @@ models:
         type: int
         low: 4
         high: 10
-      l2_leaf_reg:
+      # ---- 가중치 정규화 (CatBoost 는 L1 미지원 — L2 만 강화) ----
+      l2_leaf_reg:                            # L2. log scale 로 더 강한 규제까지 시도
         type: float
         low: 1.0
+        high: 100.0
+        log: true
+      # ---- 노이즈 주입 (정규화 효과) ----
+      random_strength:                        # 분할점 선택 시 가우시안 노이즈 강도
+        type: float
+        low: 0.0
         high: 10.0
-      bagging_temperature:
+      bagging_temperature:                    # Bayesian bootstrap 온도 (행 부분표본 변형)
         type: float
         low: 0.0
         high: 1.0
