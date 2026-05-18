@@ -261,23 +261,25 @@
   <table>
     <thead>
       <tr class="group-row">
-        <th class="left" rowspan="2">model</th>
-        {% for m in metric_names %}<th colspan="3">{{ m }}</th>{% endfor %}
+        <th class="left" rowspan="2">metric</th>
+        {% for row in overfit_rows %}
+          <th colspan="3">
+            {{ row.name }}
+            {% if row.name == best_model %}<span class="badge badge-blue" style="font-size:9px;">BEST</span>{% endif %}
+          </th>
+        {% endfor %}
       </tr>
       <tr class="sub-row">
-        {% for m in metric_names %}
+        {% for row in overfit_rows %}
           <th>Train</th><th>Test</th><th>Δ</th>
         {% endfor %}
       </tr>
     </thead>
     <tbody>
-    {% for row in overfit_rows %}
-      <tr class="{% if row.name == best_model %}best{% endif %}">
-        <td class="left">
-          {{ row.name }}
-          {% if row.name == best_model %}<span class="badge badge-blue">BEST</span>{% endif %}
-        </td>
-        {% for m in metric_names %}
+    {% for m in metric_names %}
+      <tr>
+        <td class="left">{{ m }}</td>
+        {% for row in overfit_rows %}
           {% set g = row.gaps[m] %}
           <td>{{ '%.4f'|format(row.train_metrics[m]) }}</td>
           <td>{{ '%.4f'|format(row.test_metrics[m]) }}</td>
