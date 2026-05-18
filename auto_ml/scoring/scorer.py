@@ -87,8 +87,19 @@ class Scorer:
         proba = self.model.predict_proba(X_for_model)
         prediction = (proba >= threshold).astype(int)
 
-        ids = id_columns if id_columns is not None else list(self.metadata.id_columns)
+        # ids 결정 — 호출자가 명시한 값이 비어 있지 않으면 그대로 사용,
+        # 아니면(None 또는 빈 리스트) metadata 의 학습 시점 id_columns 로 fallback.
+        # 빈 리스트가 'IDs 의도적 제외' 가 아니라 단순 미설정인 경우가 대부분이므로
+        # falsy 면 fallback 시키는 게 운영 실수를 가장 잘 막는다.
+        ids = list(id_columns) if id_columns else list(self.metadata.id_columns)
         keep_id_cols = [c for c in ids if c in df.columns]
+        # 설정된 id 중 입력에 누락된 컬럼이 있으면 운영 진단을 위해 WARN.
+        missing_ids = [c for c in ids if c not in df.columns]
+        if missing_ids:
+            logger.warning(
+                "Configured id_columns missing from input: %s (kept: %s)",
+                missing_ids, keep_id_cols or "(none)",
+            )
 
         out = pd.DataFrame(index=df.index)
         for col in keep_id_cols:

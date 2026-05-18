@@ -326,7 +326,11 @@ class ScoringConfig:
     Attributes:
         input_path: 스코어링 대상 Parquet 경로.
         output_path: 결과 Parquet 저장 경로.
-        id_columns: 결과에 그대로 보존할 식별자 컬럼.
+        id_columns: 결과에 보존할 식별자 컬럼 — 이 단계 전용 *override* 다.
+            보통 비워 두면 (a) top-level ``AutoMLConfig.id_columns`` 가, 그것도
+            비어 있으면 (b) 학습 시점에 artifact 메타데이터에 저장된 id_columns 가
+            자동으로 사용된다. 즉 top-level 에 한 번만 명시해 두면 따로 적지 않아도
+            output 에 그대로 보존된다.
         threshold: ``predict_proba`` 결과를 0/1 로 변환할 임계값.
     """
 
