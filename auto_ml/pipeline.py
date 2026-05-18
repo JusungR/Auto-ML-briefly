@@ -166,6 +166,10 @@ class AutoMLPipeline:
             outputs["report_html"] = report_paths["html"]
         if "pdf" in report_paths:
             outputs["report_pdf"] = report_paths["pdf"]
+        if "feature_importance_csv" in report_paths:
+            outputs["feature_importance_csv"] = report_paths["feature_importance_csv"]
+        if "feature_selection_csv" in report_paths:
+            outputs["feature_selection_csv"] = report_paths["feature_selection_csv"]
 
         # 6) artifact 저장 --------------------------------------------------
         best_result = result.best

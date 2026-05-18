@@ -64,15 +64,27 @@ def pr_curve_plot(curves: dict[str, tuple[np.ndarray, np.ndarray]], title: str =
 
 
 def feature_importance_plot(
-    importance: dict[str, float], top_n: int = 20, title: str = "Feature Importance",
+    importance: dict[str, float],
+    top_n: int | None = 20,
+    title: str = "Feature Importance",
+    xlabel: str = "Importance (gain)",
 ) -> str:
-    """상위 N 개 feature 의 중요도를 가로 막대로 그린다."""
-    items = sorted(importance.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    """상위 N 개 feature 의 중요도를 가로 막대로 그린다.
+
+    Args:
+        importance: ``{feature_name: importance_value}``. 값 단위는 호출자가 결정
+            (gain, relative 등) — 본 함수는 그대로 막대 길이로 사용.
+        top_n: 표시할 상위 변수 개수. ``None`` 이면 모든 변수.
+        title: 차트 제목.
+        xlabel: x 축 라벨 (단위/의미 표기).
+    """
+    sorted_items = sorted(importance.items(), key=lambda kv: kv[1], reverse=True)
+    items = sorted_items if top_n is None else sorted_items[:top_n]
     names = [name for name, _ in items][::-1]
     values = [val for _, val in items][::-1]
     fig, ax = plt.subplots(figsize=(7, max(3, 0.3 * len(names) + 1)))
     ax.barh(names, values)
-    ax.set_xlabel("Importance (gain)")
+    ax.set_xlabel(xlabel)
     ax.set_title(title)
     return _fig_to_base64(fig)
 
@@ -193,7 +205,7 @@ def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> st
 def feature_selection_plot(
     frequencies: dict[str, float],
     threshold: float,
-    top_n: int = 20,
+    top_n: int | None = 20,
     title: str = "Stability Selection Frequency",
 ) -> str:
     """Stability Selection 변수별 선택 빈도(top N) 를 가로 막대로 그린다.
@@ -201,9 +213,10 @@ def feature_selection_plot(
     Args:
         frequencies: ``{feature_name: selection_probability}`` (0.0~1.0).
         threshold: 채택 임계값 — 가로 점선으로 표시된다.
-        top_n: 표시할 상위 변수 개수.
+        top_n: 표시할 상위 변수 개수. ``None`` 이면 모든 변수.
     """
-    items = sorted(frequencies.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    sorted_items = sorted(frequencies.items(), key=lambda kv: kv[1], reverse=True)
+    items = sorted_items if top_n is None else sorted_items[:top_n]
     names = [n for n, _ in items][::-1]   # 위쪽이 가장 높은 빈도가 되도록 역순
     values = [v for _, v in items][::-1]
     # 채택/미채택을 색으로 구분 — 시각적으로 임계값 위/아래를 즉시 구별

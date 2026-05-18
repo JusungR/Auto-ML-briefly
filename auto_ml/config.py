@@ -297,12 +297,26 @@ class FeatureSelectionConfig:
 
 @dataclass
 class ReportingConfig:
-    """리포트 산출 옵션. HTML 과 PDF 두 가지를 동일 내용으로 생성한다."""
+    """리포트 산출 옵션. HTML 과 PDF 두 가지를 동일 내용으로 생성한다.
+
+    Attributes:
+        output_dir: 리포트(HTML/PDF) 와 부속 CSV (feature_importance.csv,
+            feature_selection.csv) 가 저장되는 디렉토리.
+        generate_html: HTML 리포트 생성 여부.
+        generate_pdf: PDF 리포트 생성 여부.
+        title: 리포트 제목 (HTML/PDF 헤더에 표시).
+        top_importance_features: HTML 리포트의 Feature Importance 표/차트에
+            노출할 상위 변수 개수. None 이면 모든 변수. CSV 는 항상 전체를 저장한다.
+        top_selection_features: HTML 리포트의 변수 선택 결과 표/차트에
+            노출할 상위 변수 개수. None (기본) 이면 모든 변수. CSV 는 항상 전체를 저장한다.
+    """
 
     output_dir: str = "./artifacts/reports"
     generate_html: bool = True
     generate_pdf: bool = True
     title: str = "Auto-ML Binary Classification Report"
+    top_importance_features: int | None = 30
+    top_selection_features: int | None = None
 
 
 @dataclass
