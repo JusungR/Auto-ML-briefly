@@ -74,10 +74,13 @@ def run_scoring(config: AutoMLConfig) -> Path:
         context="score_input",
     )
 
+    # id_columns 우선순위: scoring.id_columns (override) > top-level config.id_columns
+    # 둘 다 비어 있으면 scorer 가 artifact metadata 의 학습 시점 id_columns 로 fallback.
+    id_cols = config.scoring.id_columns or config.id_columns or None
     out = scorer.score(
         df,
         threshold=config.scoring.threshold,
-        id_columns=config.scoring.id_columns,
+        id_columns=id_cols,
     )
 
     output_path = Path(config.scoring.output_path)
