@@ -18,6 +18,7 @@ bias 와 비용을 줄이기 위함).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -160,14 +161,26 @@ class StabilitySelector:
         return out
 
     def _lasso_select(self, X_sub: pd.DataFrame, y_sub: pd.Series) -> list[str]:
+        import sklearn
         from sklearn.linear_model import LogisticRegression
 
+        # L1 (sparse) 로지스틱 회귀. sklearn API 가 1.8 에서 바뀌었으므로 분기:
+        #   - 1.3 ~ 1.7: ``penalty="l1"``  (l1_ratio 가 elasticnet 외에선 오류 발생)
+        #   - 1.8+     : ``l1_ratio=1.0``  (penalty 인자가 deprecated)
+        # 이전 버전 코드는 penalty 누락 + l1_ratio=1.0 을 같이 넘기는 잘못된 조합이라
+        # (a) 매 부분표본마다 UserWarning 이 폭주하고 (b) 실제로는 sklearn 기본
+        # penalty='l2' 가 적용되어 sparse 선택이 되지 않았다.
+        sk_ver = tuple(int(x) for x in sklearn.__version__.split(".")[:2])
+        if sk_ver >= (1, 8):
+            l1_kwargs: dict[str, Any] = {"l1_ratio": 1.0}
+        else:
+            l1_kwargs = {"penalty": "l1"}
         clf = LogisticRegression(
             solver="liblinear",
             C=self.config.lasso_C,
-            l1_ratio=1.0,
             max_iter=200,
             random_state=self.config.random_state,
+            **l1_kwargs,
         )
         clf.fit(X_sub.values, y_sub.values)
         coefs = clf.coef_[0]
