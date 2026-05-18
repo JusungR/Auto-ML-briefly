@@ -407,6 +407,50 @@ models:
 구현은 다르다 (위 모델 래퍼 표 참고). OOF 평가 단계의 fold 학습에는 적용되고
 **최종 fit 에는 적용되지 않는다** (early_stopping 이 검증셋을 요구하므로).
 
+## 과적합 완화 가이드
+
+리포트 §3 "오버핏 점검" 의 `Δ = Train − Test` 가 큰 경우 (예: 주요 지표 기준
+`|Δ| ≥ 0.05`), 다음 4축의 정규화 레버를 `search_space` 에 노출해 Optuna 가
+자동으로 강도를 찾도록 한다. 기본 `configs/example.yaml` 와
+`examples/credit/config.yaml` 에 이미 추가되어 있어 그대로 학습하면 적용된다.
+
+### 4축 정규화 레버
+
+| 축 | LGBM | XGBoost | CatBoost |
+|---|---|---|---|
+| L1 (가중치 sparse 화 → 변수 선택 효과) | `reg_alpha` (1e-8 ~ 10, log) | `reg_alpha` (1e-8 ~ 10, log) | — (CatBoost 는 L1 미지원) |
+| L2 (가중치 크기 제약) | `reg_lambda` (1e-8 ~ 10, log) | `reg_lambda` (1e-8 ~ 10, log) | `l2_leaf_reg` (1 ~ 100, log) |
+| 분할 보수성 (이득 임계값) | `min_gain_to_split` (0 ~ 0.5) | `gamma` (0 ~ 5) | — (depth 로 대체) |
+| 모델 native 노이즈 | `feature_fraction` / `bagging_fraction` (0.6 ~ 1.0) | `subsample` / `colsample_bytree` (0.6 ~ 1.0) | `random_strength` (0 ~ 10) + `bagging_temperature` (0 ~ 1) |
+
+이미 노출된 트리 복잡도 레버 (`num_leaves`, `max_depth`, `depth`,
+`min_data_in_leaf`, `min_child_weight`) 와 함께 동시에 탐색된다.
+
+### Δ 가 큰 경우 권장 대처 순서
+
+1. **`tuning.n_trials` 를 30~50 으로 증가** — 위 레버 추가로 trial 당 탐색 효율이
+   떨어졌으므로 trial 수를 늘려 균형을 맞춘다. credit/config 기본 `n_trials=15`
+   는 학습 시간 절약용 — 정규화 효과를 제대로 평가하려면 30+ 필요.
+2. **변수 수가 많으면 `feature_selection.enabled: true` 활성화** — feature 수가
+   200+ 이면 stability selection 으로 noise 변수를 사전 제거하는 것이 가중치
+   정규화보다 효과가 큰 경우가 많다 (특히 LGBM/XGB 에서 L1 의 변수 선택 효과를
+   더 직접적으로 강제).
+3. **트리 복잡도 상한 축소** — `num_leaves` 상한 255 → 63, `max_depth` 상한 10
+   → 6 등으로 좁혀 모델 표현력 자체를 제한.
+4. **`training.early_stopping_rounds` 를 30~50 으로 유지** — 너무 작으면 과보수
+   (best_iter 미달), 너무 크면 과적합 진입.
+
+### 운영 메모
+
+- CatBoost 는 L1 정규화를 지원하지 않으므로 `l2_leaf_reg` 범위를 log scale
+  `1 ~ 100` 으로 넓혀 더 강한 규제까지 시도 가능. CatBoost 의 내부 기본은 3 이라
+  하한 1.0 은 유지 (그 미만은 의미 없음).
+- `random_strength` (CatBoost) 는 분할점 점수에 가우시안 노이즈를 더하는 정규
+  화. 큰 값은 학습을 보수적으로 만들지만 수렴 속도도 늦춘다 → `iterations` /
+  `early_stopping_rounds` 와 함께 균형.
+- 본 가이드의 모든 항목은 코드 변경 없이 `models.<name>.search_space` YAML
+  편집만으로 즉시 적용된다. `tuning/space.py:sample_params` 가 임의 키를 처리.
+
 ## 설치
 
 ```bash

@@ -73,7 +73,11 @@ models:
       min_data_in_leaf: { type: int, low: 10,  high: 100 }
       feature_fraction: { type: float, low: 0.6, high: 1.0 }
       bagging_fraction: { type: float, low: 0.6, high: 1.0 }
-      reg_lambda:    { type: float, low: 1.0e-8, high: 10.0, log: true }
+      # 가중치 정규화 (과적합 완화)
+      reg_alpha:         { type: float, low: 1.0e-8, high: 10.0, log: true }   # L1
+      reg_lambda:        { type: float, low: 1.0e-8, high: 10.0, log: true }   # L2
+      # 분할 보수성
+      min_gain_to_split: { type: float, low: 0.0,    high: 0.5 }
 
   xgb:
     enabled: true
@@ -88,7 +92,11 @@ models:
       subsample:        { type: float, low: 0.6,  high: 1.0 }
       colsample_bytree: { type: float, low: 0.6,  high: 1.0 }
       min_child_weight: { type: float, low: 1.0,  high: 10.0 }
-      reg_lambda:       { type: float, low: 1.0e-8, high: 10.0, log: true }
+      # 가중치 정규화
+      reg_alpha:        { type: float, low: 1.0e-8, high: 10.0, log: true }    # L1
+      reg_lambda:       { type: float, low: 1.0e-8, high: 10.0, log: true }    # L2
+      # 분할 이득 최소 임계값 (LGBM 의 min_gain_to_split 과 동일 개념)
+      gamma:            { type: float, low: 0.0,    high: 5.0 }
 
   catboost:
     enabled: true
@@ -101,7 +109,11 @@ models:
     search_space:
       learning_rate: { type: float, low: 0.01, high: 0.3, log: true }
       depth:         { type: int,   low: 4,    high: 8 }
-      l2_leaf_reg:   { type: float, low: 1.0,  high: 10.0 }
+      # CatBoost 는 L1 미지원 — L2 를 log scale 로 더 강한 규제까지 시도
+      l2_leaf_reg:         { type: float, low: 1.0, high: 100.0, log: true }
+      # 노이즈 주입 (정규화 효과)
+      random_strength:     { type: float, low: 0.0, high: 10.0 }
+      bagging_temperature: { type: float, low: 0.0, high: 1.0 }
 
 # ==== 리포트 (PDF 까지 생성) ====================================
 reporting:
