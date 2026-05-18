@@ -150,15 +150,30 @@ class StabilitySelector:
 
         - 수치형: NaN→0 으로 안전화 (전처리 단계에서 이미 채워졌을 것이지만 방어).
         - 범주형: full X 기준 frequency encoding (값 → 등장 비율).
+
+        구현 메모: 컬럼별 Series 를 dict 에 모은 뒤 ``pd.concat(axis=1)`` 로 한 번에
+        합친다. 컬럼이 많을수록 (400+ 등 실무 규모) 빈 DataFrame 에 ``out[col] = ...``
+        를 반복하면 내부 블록이 잘게 쪼개져 pandas 가 ``PerformanceWarning:
+        DataFrame is highly fragmented`` 를 매번 띄운다. concat 패턴은 블록 한 개로
+        합쳐져 경고도 없고 약간 더 빠르다.
         """
-        out = pd.DataFrame(index=X.index)
+        encoded: dict[str, pd.Series] = {}
+        cat_set = set(self.categorical_columns)
         for col in X.columns:
-            if col in self.categorical_columns:
+            if col in cat_set:
                 vc = X[col].value_counts(normalize=True, dropna=False)
-                out[col] = X[col].map(vc).fillna(0.0).astype(float)
+                encoded[col] = X[col].map(vc).fillna(0.0).astype(float)
             else:
-                out[col] = pd.to_numeric(X[col], errors="coerce").fillna(0.0).astype(float)
-        return out
+                encoded[col] = (
+                    pd.to_numeric(X[col], errors="coerce").fillna(0.0).astype(float)
+                )
+        if not encoded:
+            # X 가 비어 있는 극단 케이스 — 인덱스만 유지한 빈 DataFrame.
+            return pd.DataFrame(index=X.index)
+        # concat 의 컬럼 순서는 dict 삽입 순서 (= X.columns 순서) 와 동일하지만
+        # 명시적으로 정렬해 외부에서의 컬럼 순서 가정 위반을 막는다.
+        out = pd.concat(encoded, axis=1)
+        return out[list(X.columns)]
 
     def _lasso_select(self, X_sub: pd.DataFrame, y_sub: pd.Series) -> list[str]:
         import sklearn
