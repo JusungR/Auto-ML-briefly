@@ -311,7 +311,7 @@
 <!-- ═══ 5. Best 모델 상세 ═══ -->
 <h2><span class="sec-num">5</span> Best 모델 상세 — {{ best_model }}</h2>
 
-<h3>Feature Importance (top {{ top_features }})</h3>
+<h3>Feature Importance (relative, top {{ top_features }} · 전체 분포는 feature_importance.csv)</h3>
 <div class="card" style="display: flex; gap: 16px; padding: 12px 14px;">
   <div style="flex: 1;">
     <table style="width: 100%;">
@@ -327,7 +327,7 @@
         <tr>
           <td class="left">{{ loop.index }}</td>
           <td class="left"><strong>{{ row.feature }}</strong></td>
-          <td>{{ '%.4f'|format(row.importance) }}</td>
+          <td>{{ '%.4f'|format(row.importance_relative) }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -347,7 +347,7 @@
         <tr>
           <td class="left">{{ loop.index + 15 }}</td>
           <td class="left"><strong>{{ row.feature }}</strong></td>
-          <td>{{ '%.4f'|format(row.importance) }}</td>
+          <td>{{ '%.4f'|format(row.importance_relative) }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -465,6 +465,10 @@
     ⚠ min_selected fallback 발동
   </span>
   {% endif %}
+  <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">
+    표 노출 {{ selection.top_n }} / 전체 {{ selection.n_total }}
+    (전체 분포는 feature_selection.csv)
+  </span>
 </div>
 
 <div class="card">

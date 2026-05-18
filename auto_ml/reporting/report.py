@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import csv
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,8 +29,6 @@ logger = get_logger("report")
 
 # 리포트 표에 노출할 지표 순서
 METRIC_NAMES = ("roc_auc", "ks", "lift", "accuracy", "precision", "recall", "f1", "pr_auc")
-TOP_FEATURES = 30
-TOP_SELECTION_FEATURES = 100  # 변수 선택 빈도 차트/표에 노출할 상위 개수
 
 
 class ReportBuilder:
@@ -50,6 +49,10 @@ class ReportBuilder:
     ) -> dict[str, Path]:
         """리포트를 생성하고 산출 경로를 dict 로 반환한다.
 
+        리포트 표/차트는 ``reporting.top_*_features`` 설정만큼만 노출하고,
+        CSV (``feature_importance.csv``, ``feature_selection.csv``) 는 항상
+        전체 변수를 저장한다 — 외부 분석/감사용.
+
         Args:
             result: 학습 결과 (모델별 metrics, best 모델 등).
             selection: 변수 선택을 사용했다면 결과 객체. None 이면 해당 섹션은 생략.
@@ -57,7 +60,13 @@ class ReportBuilder:
         out_dir = Path(self.config.reporting.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        html_str = self._render_html(result, selection)
+        # 전체(sorted) 데이터를 한 번만 준비 — HTML 표/차트와 CSV 가 공유한다.
+        importance_full = self._prepare_importance(result.best.feature_importance)
+        selection_full = (
+            self._prepare_selection(selection) if selection is not None else None
+        )
+
+        html_str = self._render_html(result, selection, importance_full, selection_full)
 
         outputs: dict[str, Path] = {}
         if self.config.reporting.generate_html:
@@ -72,15 +81,94 @@ class ReportBuilder:
             outputs["pdf"] = pdf_path
             logger.info("PDF report written: %s", pdf_path)
 
+        # CSV — 표/차트가 잘린 경우에도 외부에서 전체 분포를 확인할 수 있도록 항상 저장.
+        imp_csv = out_dir / "feature_importance.csv"
+        self._write_csv(
+            imp_csv, importance_full,
+            ["feature", "importance_gain", "importance_relative"],
+        )
+        outputs["feature_importance_csv"] = imp_csv
+        logger.info(
+            "Feature importance CSV written: %s (rows=%d)", imp_csv, len(importance_full),
+        )
+
+        if selection_full is not None:
+            sel_csv = out_dir / "feature_selection.csv"
+            self._write_csv(
+                sel_csv, selection_full,
+                ["feature", "frequency", "selected"],
+            )
+            outputs["feature_selection_csv"] = sel_csv
+            logger.info(
+                "Feature selection CSV written: %s (rows=%d)", sel_csv, len(selection_full),
+            )
+
         return outputs
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _prepare_importance(fi: dict[str, float]) -> list[dict[str, Any]]:
+        """feature importance 를 sum=1 의 relative 로 정규화하고 내림차순 정렬.
+
+        Returns:
+            ``[{feature, importance_gain, importance_relative}, ...]`` 전체 변수.
+            합이 0 이거나 음수 합산이 되는 비정상 케이스는 정규화하지 않고
+            relative 를 0 으로 둔다 (분모 0 회피).
+        """
+        total = float(sum(abs(v) for v in fi.values()))
+        # 모든 값이 0 인 비정상 케이스 보호 — relative 를 0 으로 두고 진행
+        norm = total if total > 0 else 0.0
+        sorted_items = sorted(fi.items(), key=lambda kv: kv[1], reverse=True)
+        rows: list[dict[str, Any]] = []
+        for name, val in sorted_items:
+            rel = (float(val) / norm) if norm > 0 else 0.0
+            rows.append({
+                "feature": name,
+                "importance_gain": float(val),
+                "importance_relative": rel,
+            })
+        return rows
+
+    @staticmethod
+    def _prepare_selection(selection: SelectionResult) -> list[dict[str, Any]]:
+        """선택 빈도 sorted 내림차순 + 채택 여부 플래그. 전체 변수 반환."""
+        selected_set = set(selection.selected_features)
+        sorted_freq = sorted(
+            selection.frequencies.items(), key=lambda kv: kv[1], reverse=True,
+        )
+        return [
+            {
+                "feature": name,
+                "frequency": float(freq),
+                "selected": name in selected_set,
+            }
+            for name, freq in sorted_freq
+        ]
+
+    @staticmethod
+    def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
+        """utf-8-sig 로 CSV 저장 (Excel 한글 호환). 헤더 + 모든 rows."""
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(columns)
+            for r in rows:
+                w.writerow([r.get(c, "") for c in columns])
 
     # ------------------------------------------------------------------
     def _render_html(
         self,
         result: TrainingResult,
         selection: SelectionResult | None = None,
+        importance_full: list[dict[str, Any]] | None = None,
+        selection_full: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Jinja2 템플릿에 컨텍스트를 채워 HTML 문자열을 만든다."""
+        """Jinja2 템플릿에 컨텍스트를 채워 HTML 문자열을 만든다.
+
+        Args:
+            importance_full / selection_full: ``build()`` 가 전달하는 정규화/정렬
+                완료된 전체 데이터. None 이면 본 메소드 내에서 다시 계산한다
+                (단위 테스트용 짧은 경로).
+        """
         # ----- 모델 비교 표 데이터 -----
         comparison_rows = []
         cv_rows = []
@@ -120,16 +208,20 @@ class ReportBuilder:
         pr_chart = plots.pr_curve_plot(roc_curves)
 
         best = result.best
-        
-        # 상위 30개 (TOP_FEATURES) 피처 중요도 차트 및 표 데이터 생성
-        importance_items = sorted(
-            best.feature_importance.items(), key=lambda kv: kv[1], reverse=True
-        )[:TOP_FEATURES]
-        importance_rows = [
-            {"feature": k, "importance": v} for k, v in importance_items
-        ]
+
+        # Feature importance: 합 1 의 relative 로 정규화 (gain 절대값은 모델/데이터 의존이라 비교가 어려움).
+        # build() 가 이미 만들어 둔 전체 데이터를 받고, 없으면 짧은 경로로 다시 만든다.
+        if importance_full is None:
+            importance_full = self._prepare_importance(best.feature_importance)
+        top_imp_n = self.config.reporting.top_importance_features
+        importance_rows = (
+            importance_full if top_imp_n is None else importance_full[:top_imp_n]
+        )
+        # 차트도 동일한 top-N 으로. relative 값을 그대로 막대 길이에 사용.
         importance_chart = plots.feature_importance_plot(
-            best.feature_importance, top_n=TOP_FEATURES
+            {r["feature"]: r["importance_relative"] for r in importance_rows},
+            top_n=None,  # 이미 위에서 잘랐으니 plots 쪽에서는 다시 자르지 않는다
+            xlabel="Importance (relative, sums to 1)",
         )
         
         proba_by_label = {
@@ -142,7 +234,7 @@ class ReportBuilder:
         decile_rows, decile_chart = plots.decile_analysis(result.test_y, best.test_proba)
 
         # ----- 변수 선택 결과 (활성화된 경우만) -----
-        selection_ctx = self._build_selection_context(selection)
+        selection_ctx = self._build_selection_context(selection, selection_full)
 
         # ----- Confusion / 설정 요약 -----
         cm = confusion(result.test_y, best.test_proba, threshold=0.5)
@@ -170,7 +262,7 @@ class ReportBuilder:
             score_dist_chart=score_dist_chart,
             decile_chart=decile_chart,
             decile_rows=decile_rows,
-            top_features=TOP_FEATURES,
+            top_features=len(importance_rows),
             selection=selection_ctx,
             confusion=cm.tolist(),
             config_summary=config_summary,
@@ -178,28 +270,30 @@ class ReportBuilder:
         )
 
     def _build_selection_context(
-        self, selection: SelectionResult | None,
+        self,
+        selection: SelectionResult | None,
+        selection_full: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
-        """변수 선택 결과를 템플릿이 바로 쓰도록 가공한다 (None 이면 None 반환)."""
+        """변수 선택 결과를 템플릿이 바로 쓰도록 가공한다 (None 이면 None 반환).
+
+        Args:
+            selection: 변수 선택 결과 객체.
+            selection_full: ``build()`` 가 미리 준비한 정렬 완료 전체 데이터.
+                None 이면 본 메소드 내에서 다시 계산.
+        """
         if selection is None:
             return None
-        # 빈도 내림차순 정렬 — 차트 / 표 모두 같은 순서로 노출
-        sorted_freq = sorted(
-            selection.frequencies.items(), key=lambda kv: kv[1], reverse=True,
-        )
+        if selection_full is None:
+            selection_full = self._prepare_selection(selection)
+
+        # 표/차트 노출 개수: 설정 기반. None 이면 모든 변수.
+        top_n = self.config.reporting.top_selection_features
+        rows = selection_full if top_n is None else selection_full[:top_n]
         chart = plots.feature_selection_plot(
             selection.frequencies,
             threshold=selection.threshold,
-            top_n=TOP_SELECTION_FEATURES,
+            top_n=top_n,
         )
-        rows = [
-            {
-                "feature": name,
-                "frequency": float(freq),
-                "selected": name in selection.selected_features,
-            }
-            for name, freq in sorted_freq[:TOP_SELECTION_FEATURES]
-        ]
         return {
             "base_estimator": selection.base_estimator,
             "n_subsamples": selection.n_subsamples,
@@ -207,7 +301,7 @@ class ReportBuilder:
             "n_total": len(selection.frequencies),
             "n_selected": len(selection.selected_features),
             "fallback_used": selection.fallback_used,
-            "top_n": TOP_SELECTION_FEATURES,
+            "top_n": len(rows),
             "chart": chart,
             "rows": rows,
         }
