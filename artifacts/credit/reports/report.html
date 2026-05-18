@@ -197,7 +197,7 @@
 <div class="report-header">
   <h1>Credit Card Default Auto-ML Report</h1>
   <div class="header-pills">
-    <span class="pill">🕐 2026-05-16 05:19:33 UTC</span>
+    <span class="pill">🕐 2026-05-18 04:00:48 UTC</span>
     <span class="pill highlight">🏆 Best: <strong>catboost</strong> &nbsp;roc_auc = 0.7790</span>
     <span class="pill">학습 24000행</span>
     <span class="pill">테스트 6000행</span>
@@ -490,7 +490,7 @@
 <!-- ═══ 5. Best 모델 상세 ═══ -->
 <h2><span class="sec-num">5</span> Best 모델 상세 — catboost</h2>
 
-<h3>Feature Importance (top 30)</h3>
+<h3>Feature Importance (relative, top 19 · 전체 분포는 feature_importance.csv)</h3>
 <div class="card" style="display: flex; gap: 16px; padding: 12px 14px;">
   <div style="flex: 1;">
     <table style="width: 100%;">
@@ -506,91 +506,91 @@
         <tr>
           <td class="left">1</td>
           <td class="left"><strong>PAY_0</strong></td>
-          <td>25.2403</td>
+          <td>0.2524</td>
         </tr>
       
         <tr>
           <td class="left">2</td>
           <td class="left"><strong>LIMIT_BAL</strong></td>
-          <td>9.8115</td>
+          <td>0.0981</td>
         </tr>
       
         <tr>
           <td class="left">3</td>
           <td class="left"><strong>BILL_AMT1</strong></td>
-          <td>8.1927</td>
+          <td>0.0819</td>
         </tr>
       
         <tr>
           <td class="left">4</td>
           <td class="left"><strong>PAY_2</strong></td>
-          <td>6.0274</td>
+          <td>0.0603</td>
         </tr>
       
         <tr>
           <td class="left">5</td>
           <td class="left"><strong>PAY_3</strong></td>
-          <td>4.4471</td>
+          <td>0.0445</td>
         </tr>
       
         <tr>
           <td class="left">6</td>
           <td class="left"><strong>BILL_AMT2</strong></td>
-          <td>4.3936</td>
+          <td>0.0439</td>
         </tr>
       
         <tr>
           <td class="left">7</td>
           <td class="left"><strong>PAY_AMT2</strong></td>
-          <td>4.3723</td>
+          <td>0.0437</td>
         </tr>
       
         <tr>
           <td class="left">8</td>
           <td class="left"><strong>PAY_AMT3</strong></td>
-          <td>4.2982</td>
+          <td>0.0430</td>
         </tr>
       
         <tr>
           <td class="left">9</td>
           <td class="left"><strong>PAY_4</strong></td>
-          <td>4.2650</td>
+          <td>0.0427</td>
         </tr>
       
         <tr>
           <td class="left">10</td>
           <td class="left"><strong>PAY_AMT1</strong></td>
-          <td>4.1239</td>
+          <td>0.0412</td>
         </tr>
       
         <tr>
           <td class="left">11</td>
           <td class="left"><strong>AGE</strong></td>
-          <td>3.5923</td>
+          <td>0.0359</td>
         </tr>
       
         <tr>
           <td class="left">12</td>
           <td class="left"><strong>PAY_AMT4</strong></td>
-          <td>3.0514</td>
+          <td>0.0305</td>
         </tr>
       
         <tr>
           <td class="left">13</td>
           <td class="left"><strong>BILL_AMT5</strong></td>
-          <td>3.0093</td>
+          <td>0.0301</td>
         </tr>
       
         <tr>
           <td class="left">14</td>
           <td class="left"><strong>PAY_6</strong></td>
-          <td>2.9744</td>
+          <td>0.0297</td>
         </tr>
       
         <tr>
           <td class="left">15</td>
           <td class="left"><strong>PAY_5</strong></td>
-          <td>2.9178</td>
+          <td>0.0292</td>
         </tr>
       
       </tbody>
@@ -610,25 +610,25 @@
         <tr>
           <td class="left">16</td>
           <td class="left"><strong>PAY_AMT6</strong></td>
-          <td>2.6288</td>
+          <td>0.0263</td>
         </tr>
       
         <tr>
           <td class="left">17</td>
           <td class="left"><strong>BILL_AMT6</strong></td>
-          <td>2.5764</td>
+          <td>0.0258</td>
         </tr>
       
         <tr>
           <td class="left">18</td>
           <td class="left"><strong>PAY_AMT5</strong></td>
-          <td>2.5087</td>
+          <td>0.0251</td>
         </tr>
       
         <tr>
           <td class="left">19</td>
           <td class="left"><strong>SEX</strong></td>
-          <td>1.5690</td>
+          <td>0.0157</td>
         </tr>
       
       </tbody>
@@ -962,6 +962,10 @@
     채택 <strong>19 / 23</strong>
   </span>
   
+  <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">
+    표 노출 23 / 전체 23
+    (전체 분포는 feature_selection.csv)
+  </span>
 </div>
 
 <div class="card">
@@ -1396,7 +1400,7 @@
 
 <!-- ═══ 푸터 ═══ -->
 <div class="footer">
-  auto_ml v0.1.0 &nbsp;·&nbsp; 본 리포트는 자동 생성됨 &nbsp;·&nbsp; 2026-05-16 05:19:33 UTC
+  auto_ml v0.1.0 &nbsp;·&nbsp; 본 리포트는 자동 생성됨 &nbsp;·&nbsp; 2026-05-18 04:00:48 UTC
 </div>
 
 </body>
