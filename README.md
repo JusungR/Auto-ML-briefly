@@ -535,6 +535,57 @@ auto-ml-explain --config configs/example.yaml
 
 코드에서 직접 호출하는 예시는 `examples/run_train.py`, `examples/run_score.py` 참고.
 
+## 모형 후보 관리 (Best 변경)
+
+학습 시 모든 모형(LGBM/XGB/CatBoost)이 별도 sub-artifact 로 함께 저장된다:
+
+```
+artifact_dir/best.joblib              ← 운영용 (scoring/explain 대상)
+artifact_dir/models/lgbm.joblib       ← 후보 1
+artifact_dir/models/xgb.joblib        ← 후보 2
+artifact_dir/models/catboost.joblib   ← 후보 3
+```
+
+`best.joblib` 은 위 sub-artifact 중 하나의 복사본이다. 기본은
+`training.primary_metric` 기준 holdout 점수 최고 모형. 각 sub-artifact 는 독립
+번들이라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+
+### 학습 시점에 best 강제 지정
+
+```yaml
+training:
+  primary_metric: roc_auc
+  best_model: lgbm        # null/생략 시 자동 선정. 지정 시 그 모형을 best 로.
+```
+
+알 수 없는 모형 이름이면 학습이 명시적 `ValueError` 로 실패한다.
+
+### 학습 후 best 교체 (재학습 없이)
+
+```bash
+auto-ml-set-best --config configs/example.yaml --model xgb
+# artifact_dir/models/xgb.joblib → artifact_dir/best.joblib 로 복사.
+# scoring / explain 이 즉시 새 모형 사용.
+```
+
+승격된 best 의 metadata.extra 에는 `promoted_at` / `promoted_from`(이전 best 모형명) 이
+기록되어 운영 추적이 가능하다.
+
+### 후보 모형의 상세 리포트
+
+비-best 모형마다 별도 sub-report 가 자동 생성된다:
+
+```
+reporting.output_dir/sub/lgbm/report.html
+reporting.output_dir/sub/lgbm/report.pdf
+reporting.output_dir/sub/lgbm/feature_importance.csv
+reporting.output_dir/sub/xgb/...
+```
+
+각 sub-report 는 점수 표(현 모형 vs best), feature importance, decile/confusion/
+score distribution, 변수 선택 결과, 학습 설정/튜닝 요약을 담는다.
+변수 선택 CSV(`feature_selection.csv`) 는 모형 무관이라 메인 리포트에만 1개 둔다.
+
 ### 타이타닉 end-to-end 예시
 
 실제 공개 데이터셋(Titanic, 891 rows) 으로 전체 파이프라인을 검증할 수 있다.

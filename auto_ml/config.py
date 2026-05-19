@@ -226,12 +226,17 @@ class TrainingConfig:
         early_stopping_rounds: 부스팅 모델 조기종료 라운드 수.
         primary_metric: 모델 선택 / 튜닝 목적함수에 사용하는 지표.
                         지원: roc_auc | pr_auc | f1 | accuracy | precision | recall | ks
+        best_model: best 로 채택할 모형 이름을 명시적으로 지정한다.
+                    None (기본) 이면 ``primary_metric`` 최대값 모형을 자동 선정.
+                    값이 학습된 모형 이름이 아니면 ValueError.
+                    학습 후 변경하려면 ``auto-ml-set-best`` CLI 사용.
     """
 
     cv_folds: int = 5
     random_state: int = 42
     early_stopping_rounds: int = 50
     primary_metric: str = "roc_auc"
+    best_model: str | None = None
 
 
 @dataclass

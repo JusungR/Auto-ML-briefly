@@ -64,6 +64,8 @@ training:
   random_state: 42
   early_stopping_rounds: 50
   primary_metric: roc_auc                   # roc_auc | pr_auc | f1 | accuracy | precision | recall | ks
+  best_model: null                          # 명시 시 best 자동 선정을 override (lgbm | xgb | catboost).
+                                            # 학습 후 변경은 auto-ml-set-best CLI 사용.
 
 # ==== 베이지안 하이퍼파라미터 최적화 (Optuna) ====================
 tuning:

@@ -31,6 +31,7 @@ dependencies = [
 auto-ml-train = "auto_ml.pipeline:cli_train"
 auto-ml-score = "auto_ml.scoring.runner:cli_score"
 auto-ml-explain = "auto_ml.explain.runner:cli_explain"
+auto-ml-set-best = "auto_ml.cli.set_best:cli_set_best"
 
 [tool.setuptools.packages.find]
 where = ["."]
