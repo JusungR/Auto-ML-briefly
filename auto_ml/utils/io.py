@@ -1,11 +1,15 @@
 """학습 산출물(artifact) 저장 / 로드 유틸리티.
 
-artifact 번들 = 단일 joblib 파일 1개에 다음을 함께 저장한다:
+artifact 번들 = 단일 파일에 다음을 함께 저장한다:
     - preprocessor : 학습 시 fit 된 PreprocessingPipeline
     - model        : 학습 시 fit 된 BaseModel 구현체 (LGBM/XGB/CatBoost 중 1개)
     - metadata     : 스키마, 학습 시점, feature/target 명, 평가 지표 등 운영 정보
 
-이렇게 한 번들로 묶으면 폐쇄 환경 이관이 단순해진다 — joblib 파일과
+cloudpickle + gzip 으로 직렬화하므로 auto_ml 패키지가 설치되지 않은 환경에서도
+클래스 정의가 파일 안에 내장되어 있어 표준 pickle 로 로드할 수 있다.
+구버전 joblib 형식(.joblib) 도 하위 호환으로 로드 가능.
+
+이렇게 한 번들로 묶으면 폐쇄 환경 이관이 단순해진다 — 파일과
 스코어링용 config YAML 두 개만 옮기면 즉시 운영이 가능하다.
 
 부가로 학습/스코어링 진입점에서 데이터 로드 직후 한 줄 요약을 찍어주기 위한
@@ -13,11 +17,14 @@ artifact 번들 = 단일 joblib 파일 1개에 다음을 함께 저장한다:
 """
 from __future__ import annotations
 
+import gzip
+import pickle
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import cloudpickle
 import joblib
 import pandas as pd
 
@@ -62,10 +69,13 @@ def save_artifact(
     model: Any,
     metadata: ArtifactMetadata,
 ) -> Path:
-    """preprocessor + model + metadata 를 단일 joblib 파일로 저장한다.
+    """preprocessor + model + metadata 를 단일 파일로 저장한다.
+
+    cloudpickle + gzip 으로 직렬화하여 auto_ml 패키지가 없는 환경에서도
+    표준 ``pickle.load`` 로 로드할 수 있다.
 
     Args:
-        path: 저장 경로 (``.joblib`` 확장자 권장).
+        path: 저장 경로 (``.joblib`` 확장자 권장, 형식은 무관).
         preprocessor: fit 된 ``PreprocessingPipeline``.
         model: fit 된 ``BaseModel`` 구현체.
         metadata: 운영 메타데이터.
@@ -76,13 +86,15 @@ def save_artifact(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"preprocessor": preprocessor, "model": model, "metadata": metadata}
-    # compress=3 은 속도/용량 균형이 가장 무난한 값
-    joblib.dump(payload, path, compress=3)
+    with gzip.open(path, "wb") as f:
+        cloudpickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
     return path
 
 
 def load_artifact(path: str | Path) -> dict[str, Any]:
     """저장된 artifact 번들을 로드한다.
+
+    cloudpickle+gzip 형식(신규) 과 구버전 joblib 형식을 모두 지원한다.
 
     Args:
         path: ``save_artifact`` 로 저장된 파일 경로.
@@ -90,7 +102,15 @@ def load_artifact(path: str | Path) -> dict[str, Any]:
     Returns:
         ``{"preprocessor", "model", "metadata"}`` 키를 갖는 dict.
     """
-    return joblib.load(Path(path))
+    p = Path(path)
+    # gzip 매직 바이트(0x1f 0x8b) 로 형식 판별
+    with open(p, "rb") as f:
+        magic = f.read(2)
+    if magic == b"\x1f\x8b":
+        with gzip.open(p, "rb") as f:
+            return pickle.load(f)
+    # 구버전 joblib 형식 하위 호환
+    return joblib.load(p)
 
 
 def find_degenerate_columns(

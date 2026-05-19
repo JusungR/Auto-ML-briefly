@@ -120,3 +120,11 @@ class LGBMModel(BaseModel):
         # importance_type='gain' 이 분포 왜곡이 적어 운영 해석에 더 유용
         importances = self.model.booster_.feature_importance(importance_type="gain")
         return dict(zip(self.feature_columns, map(float, importances)))
+
+    def shap_values(self, X: pd.DataFrame) -> np.ndarray:
+        # Booster.predict(pred_contrib=True) 는 (n, n_features + 1) 의
+        # raw-margin 도메인 SHAP 을 반환한다. 마지막 열이 expected value.
+        # focal loss 활성 시에도 동일 — Booster 출력은 항상 raw margin.
+        X_in = self._to_categorical(X[self.feature_columns])
+        contrib = self.model.booster_.predict(X_in, pred_contrib=True)
+        return np.asarray(contrib)

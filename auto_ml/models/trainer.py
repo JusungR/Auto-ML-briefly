@@ -101,17 +101,28 @@ class Trainer:
                 y_test=y_test,
             )
 
-        # primary_metric 기준 best 선정 (테스트 점수 사용 — 모든 모델 동일 데이터)
+        # best 선정 — 사용자 override 가 있으면 그 모형, 아니면 primary_metric 최대값.
         primary = self.config.training.primary_metric
-        best_name = max(
-            results.keys(), key=lambda n: results[n].test_metrics[primary]
-        )
-        logger.info(
-            "Best model: %s (%s=%.4f)",
-            best_name,
-            primary,
-            results[best_name].test_metrics[primary],
-        )
+        override = self.config.training.best_model
+        if override is not None:
+            if override not in results:
+                raise ValueError(
+                    f"Unknown best_model override: {override!r}. "
+                    f"Available: {sorted(results.keys())}"
+                )
+            best_name = override
+            logger.info(
+                "Best model: %s (user override; %s=%.4f)",
+                best_name, primary, results[best_name].test_metrics[primary],
+            )
+        else:
+            best_name = max(
+                results.keys(), key=lambda n: results[n].test_metrics[primary]
+            )
+            logger.info(
+                "Best model: %s (auto-selected by %s=%.4f)",
+                best_name, primary, results[best_name].test_metrics[primary],
+            )
 
         return TrainingResult(
             results=results,

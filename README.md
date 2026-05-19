@@ -451,6 +451,54 @@ models:
 - 본 가이드의 모든 항목은 코드 변경 없이 `models.<name>.search_space` YAML
   편집만으로 즉시 적용된다. `tuning/space.py:sample_params` 가 임의 키를 처리.
 
+## SHAP 해석 (auto-ml-explain)
+
+학습된 모형이 각 입력 행을 왜 그렇게 예측했는지 **건별·변수별 기여도** 를 산출한다.
+세 모델 (LGBM/XGB/CatBoost) 의 native API (`pred_contrib` / `ShapValues`) 를 그대로
+사용하므로 별도 `shap` 패키지 의존성 없음.
+
+```bash
+# 학습 후 같은 config 로 호출
+auto-ml-explain --config configs/example.yaml
+```
+
+### 출력 스키마 (Wide)
+
+```
+<id_columns> + shap_<feature_1> + shap_<feature_2> + ... + base_value + score
+```
+
+- **`base_value`**: 모델의 평균 예측 확률 (각 행 동일).
+- **`shap_<feature>`**: 해당 변수가 평균 대비 예측을 얼마나 끌어올렸/내렸는지 (확률 도메인).
+- **`score`**: 최종 예측 확률 (= `Scorer.score` 와 동일).
+- **가법성 보장**: 모든 행에서 `base_value + sum(shap_*) == score` (수치 오차 ≤ 1e-12).
+
+### 도메인 변환 공식
+
+native API 는 raw-margin (logit) 도메인 SHAP 을 반환한다. 본 라이브러리는 다음과 같이
+확률 도메인으로 변환하면서 가법성을 보존한다:
+
+```
+p_base = sigmoid(base_raw)
+p_pred = sigmoid(base_raw + sum(feature_raw))
+shap_prob[i] = feature_raw[i] / sum(feature_raw) * (p_pred - p_base)
+```
+
+비율은 raw 도메인 그대로 유지되고, 합산만 `(score - base_value)` 와 정확히 일치하도록
+스케일링된다.
+
+### 설정
+
+```yaml
+explain:
+  input_path:  ./data/score_input.parquet    # 스코어링 입력과 동일해도 무방
+  output_path: ./artifacts/explanations/shap.parquet
+  id_columns:
+    - user_id                                # ScoringConfig 와 동일한 우선순위
+```
+
+`id_columns` 가 비어 있으면 top-level `id_columns` → artifact metadata 순으로 fallback.
+
 ## 설치
 
 ```bash
@@ -478,9 +526,65 @@ auto-ml-train --config configs/example.yaml
 # 3) 스코어링 — 산출물:
 #    artifacts/scores/scores.parquet  (id_columns + score + prediction)
 auto-ml-score --config configs/example.yaml
+
+# 4) SHAP 해석 — 산출물:
+#    artifacts/explanations/shap.parquet
+#    (id_columns + shap_<feature>... + base_value + score, 확률 도메인)
+auto-ml-explain --config configs/example.yaml
 ```
 
 코드에서 직접 호출하는 예시는 `examples/run_train.py`, `examples/run_score.py` 참고.
+
+## 모형 후보 관리 (Best 변경)
+
+학습 시 모든 모형(LGBM/XGB/CatBoost)이 별도 sub-artifact 로 함께 저장된다:
+
+```
+artifact_dir/best.joblib              ← 운영용 (scoring/explain 대상)
+artifact_dir/models/lgbm.joblib       ← 후보 1
+artifact_dir/models/xgb.joblib        ← 후보 2
+artifact_dir/models/catboost.joblib   ← 후보 3
+```
+
+`best.joblib` 은 위 sub-artifact 중 하나의 복사본이다. 기본은
+`training.primary_metric` 기준 holdout 점수 최고 모형. 각 sub-artifact 는 독립
+번들이라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+
+### 학습 시점에 best 강제 지정
+
+```yaml
+training:
+  primary_metric: roc_auc
+  best_model: lgbm        # null/생략 시 자동 선정. 지정 시 그 모형을 best 로.
+```
+
+알 수 없는 모형 이름이면 학습이 명시적 `ValueError` 로 실패한다.
+
+### 학습 후 best 교체 (재학습 없이)
+
+```bash
+auto-ml-set-best --config configs/example.yaml --model xgb
+# artifact_dir/models/xgb.joblib → artifact_dir/best.joblib 로 복사.
+# scoring / explain 이 즉시 새 모형 사용.
+```
+
+승격된 best 의 metadata.extra 에는 `promoted_at` / `promoted_from`(이전 best 모형명) 이
+기록되어 운영 추적이 가능하다.
+
+### 후보 모형의 상세 리포트
+
+비-best 모형마다 별도 sub-report 가 자동 생성된다:
+
+```
+reporting.output_dir/sub/lgbm/report.html
+reporting.output_dir/sub/lgbm/report.pdf
+reporting.output_dir/sub/lgbm/feature_importance.csv
+reporting.output_dir/sub/xgb/...
+```
+
+각 sub-report 는 점수 표(현 모형 vs best), feature importance, decile/confusion/
+score distribution, 변수 선택 결과, 학습 설정/튜닝 요약을 담는다.
+변수 선택 CSV(`feature_selection.csv`) 는 모형 무관이라 메인 리포트에만 1개 둔다.
 
 ### 타이타닉 end-to-end 예시
 

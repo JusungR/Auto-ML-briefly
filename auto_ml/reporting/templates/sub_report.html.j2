@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <title>{{ title }}</title>
 <style>
-  /* ── 기본 리셋 & 폰트 ── */
   @page { size: A4; margin: 15mm 18mm; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -15,16 +14,15 @@
     background: #fff;
   }
 
-  /* ── 헤더 배너 ── */
   .report-header {
-    background: linear-gradient(135deg, #1a56db 0%, #0e3a8c 100%);
+    background: linear-gradient(135deg, #4b5563 0%, #1f2937 100%);
     color: #fff;
     padding: 20px 24px 16px;
     border-radius: 8px;
     margin-bottom: 24px;
   }
   .report-header h1 {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 700;
     letter-spacing: -0.3px;
     margin-bottom: 10px;
@@ -45,20 +43,24 @@
     white-space: nowrap;
   }
   .pill strong { font-weight: 700; }
-  .pill.highlight {
-    background: #facc15;
-    border-color: #facc15;
-    color: #1e2329;
+  .pill.gap-pos { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+  .pill.gap-neg { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 12px;
+    font-size: 11px;
+    color: #4b5563;
+    text-decoration: none;
   }
+  .back-link:hover { text-decoration: underline; }
 
-  /* ── 섹션 제목 ── */
   h2 {
     font-size: 15px;
     font-weight: 700;
-    color: #1a56db;
+    color: #1f2937;
     margin: 28px 0 12px;
     padding-bottom: 6px;
-    border-bottom: 2px solid #e5edff;
+    border-bottom: 2px solid #e5e7eb;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -68,7 +70,7 @@
     align-items: center;
     justify-content: center;
     width: 22px; height: 22px;
-    background: #1a56db;
+    background: #4b5563;
     color: #fff;
     border-radius: 50%;
     font-size: 11px;
@@ -82,7 +84,6 @@
     margin: 14px 0 6px;
   }
 
-  /* ── 카드 ── */
   .card {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
@@ -91,13 +92,12 @@
   }
   .card-body { padding: 12px 14px; }
 
-  /* ── 표 ── */
   table {
     width: 100%;
     border-collapse: collapse;
     font-size: 11px;
   }
-  thead tr { background: #1a56db; color: #fff; }
+  thead tr { background: #4b5563; color: #fff; }
   thead th {
     padding: 7px 10px;
     text-align: right;
@@ -109,7 +109,6 @@
   tbody tr { border-bottom: 1px solid #f0f0f0; }
   tbody tr:last-child { border-bottom: none; }
   tbody tr:nth-child(even) { background: #f9fafb; }
-  tbody tr:hover { background: #eff6ff; }
   tbody td {
     padding: 6px 10px;
     text-align: right;
@@ -117,25 +116,9 @@
   }
   tbody td.left { text-align: left; }
 
-  /* best 모델 행 강조 */
-  .best td { background: #e8f3ff !important; font-weight: 700; color: #1a56db; }
-  .best td.left { color: #1a56db; }
+  td.delta-pos { color: #065f46; }
+  td.delta-neg { color: #991b1b; }
 
-  /* ── overfit gap 셀 색상 (Δ = train - test) ── */
-  /* 양수 gap 이 클수록 in-sample 점수가 holdout 보다 높다는 뜻 → 메모리제이션 신호 */
-  td.gap-high { color: #991b1b; font-weight: 700; }   /* |Δ| ≥ 0.10 */
-  td.gap-mid  { color: #b45309; font-weight: 600; }   /* 0.05 ≤ |Δ| < 0.10 */
-  td.gap-low  { color: #6b7280; }                      /* |Δ| < 0.05 */
-
-  /* overfit 표 그룹 헤더 (metric 별 colspan=3) */
-  thead tr.group-row { background: #1a56db; color: #fff; }
-  thead tr.sub-row   { background: #2563eb; color: #fff; }
-  thead tr.sub-row th { font-size: 10px; padding: 4px 6px; }
-  thead tr.group-row th { border-left: 1px solid rgba(255,255,255,0.25); }
-  thead tr.group-row th:first-child { border-left: none; }
-  thead tr.group-row th.left { text-align: left; }
-
-  /* ── 뱃지 ── */
   .badge {
     display: inline-block;
     padding: 2px 8px;
@@ -149,7 +132,6 @@
   .badge-red    { background: #fee2e2; color: #991b1b; }
   .badge-blue   { background: #dbeafe; color: #1e40af; }
 
-  /* ── 진행바 (frequency) ── */
   .bar-wrap { display: flex; align-items: center; gap: 6px; }
   .bar-bg {
     flex: 1;
@@ -158,17 +140,15 @@
     border-radius: 4px;
     overflow: hidden;
   }
-  .bar-fill { height: 100%; border-radius: 4px; background: #1a56db; }
+  .bar-fill { height: 100%; border-radius: 4px; background: #4b5563; }
   .bar-fill.below { background: #d1d5db; }
   .bar-val { min-width: 36px; text-align: right; font-size: 10px; color: #6b7280; }
 
-  /* ── 차트 그리드 ── */
   .grid-2 { display: flex; gap: 12px; margin: 8px 0 16px; }
   .grid-2 .chart-box { flex: 1 1 0; min-width: 0; }
   .chart-box { margin: 8px 0 16px; }
   .chart-box img { width: 100%; display: block; border-radius: 6px; border: 1px solid #e5e7eb; }
 
-  /* ── confusion matrix ── */
   .cm-table { width: auto; }
   .cm-table th, .cm-table td { min-width: 70px; text-align: center; }
   .cm-table .cm-tn { background: #d1fae5; color: #065f46; font-weight: 700; }
@@ -176,11 +156,9 @@
   .cm-table .cm-fp { background: #fee2e2; color: #991b1b; }
   .cm-table .cm-fn { background: #fee2e2; color: #991b1b; }
 
-  /* ── config 표 ── */
   .config-key { color: #6b7280; font-family: monospace; font-size: 10.5px; }
   .config-val { font-family: monospace; font-size: 10.5px; color: #1e2329; }
 
-  /* ── 푸터 ── */
   .footer {
     margin-top: 28px;
     padding-top: 10px;
@@ -193,127 +171,57 @@
 </head>
 <body>
 
-<!-- ═══ 헤더 ═══ -->
+<a class="back-link" href="../../report.html">← Main report</a>
+
 <div class="report-header">
-  <h1>{{ title }}</h1>
+  <h1>{{ title }} — {{ model_name }} (sub)</h1>
   <div class="header-pills">
     <span class="pill">🕐 {{ generated_at }}</span>
-    <span class="pill highlight">🏆 Best: <strong>{{ best_model }}</strong> &nbsp;{{ primary_metric }} = {{ '%.4f'|format(best_score) }}</span>
-    <span class="pill">학습 {{ n_train }}행</span>
-    <span class="pill">테스트 {{ n_test }}행</span>
-    <span class="pill">Feature {{ n_features }}개</span>
+    <span class="pill">모형 <strong>{{ model_name }}</strong></span>
+    <span class="pill">{{ primary_metric }} = <strong>{{ '%.4f'|format(metric_value) }}</strong></span>
+    <span class="pill">BEST({{ best_model_name }}) = {{ '%.4f'|format(best_score) }}</span>
+    {% set gap = metric_value - best_score %}
+    <span class="pill {% if gap >= 0 %}gap-neg{% else %}gap-pos{% endif %}">
+      Δ vs best = {{ '%+.4f'|format(gap) }}
+    </span>
   </div>
 </div>
 
-<!-- ═══ 1. 모델 비교 ═══ -->
-<h2><span class="sec-num">1</span> 모델 비교 (holdout 기준)</h2>
-<div class="card">
-  <table>
-    <thead>
-      <tr>
-        <th class="left">model</th>
-        {% for m in metric_names %}<th>{{ m }}</th>{% endfor %}
-        <th>best_iter (avg)</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for row in comparison_rows %}
-      <tr class="{% if row.name == best_model %}best{% endif %}">
-        <td class="left">
-          {{ row.name }}
-          {% if row.name == best_model %}<span class="badge badge-blue">BEST</span>{% endif %}
-        </td>
-        {% for m in metric_names %}<td>{{ '%.4f'|format(row.metrics[m]) }}</td>{% endfor %}
-        <td>{{ row.best_iter_avg if row.best_iter_avg is not none else '-' }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- ═══ 2. CV(OOF) 비교 ═══ -->
-<h2><span class="sec-num">2</span> CV (OOF) 비교</h2>
-<div class="card">
-  <table>
-    <thead>
-      <tr>
-        <th class="left">model</th>
-        {% for m in metric_names %}<th>{{ m }}</th>{% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-    {% for row in cv_rows %}
-      <tr class="{% if row.name == best_model %}best{% endif %}">
-        <td class="left">
-          {{ row.name }}
-          {% if row.name == best_model %}<span class="badge badge-blue">BEST</span>{% endif %}
-        </td>
-        {% for m in metric_names %}<td>{{ '%.4f'|format(row.metrics[m]) }}</td>{% endfor %}
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- ═══ 3. 오버핏 점검 (Train vs Holdout) ═══ -->
-<h2><span class="sec-num">3</span> 오버핏 점검 (Train vs Holdout)</h2>
+<!-- ═══ 1. 점수 요약 (본 모형 vs best) ═══ -->
+<h2><span class="sec-num">1</span> 점수 요약 (본 모형 vs best)</h2>
 <div class="card">
   <table>
     <thead>
       <tr class="group-row">
         <th class="left" rowspan="2">metric</th>
-        {% for row in overfit_rows %}
-          <th colspan="3">
-            {{ row.name }}
-            {% if row.name == best_model %}<span class="badge badge-blue" style="font-size:9px;">BEST</span>{% endif %}
-          </th>
-        {% endfor %}
+        <th colspan="2">{{ model_name }} (현재)</th>
+        <th colspan="2">{{ best_model_name }} (BEST)</th>
+        <th rowspan="2">Δ(Test)</th>
       </tr>
       <tr class="sub-row">
-        {% for row in overfit_rows %}
-          <th>Train</th><th>Test</th><th>Δ</th>
-        {% endfor %}
+        <th>Train</th><th>Test</th>
+        <th>Train</th><th>Test</th>
       </tr>
     </thead>
     <tbody>
     {% for m in metric_names %}
       <tr>
         <td class="left">{{ m }}</td>
-        {% for row in overfit_rows %}
-          {% set g = row.gaps[m] %}
-          <td>{{ '%.4f'|format(row.train_metrics[m]) }}</td>
-          <td>{{ '%.4f'|format(row.test_metrics[m]) }}</td>
-          <td class="{% if g|abs >= 0.10 %}gap-high{% elif g|abs >= 0.05 %}gap-mid{% else %}gap-low{% endif %}">{{ '%+.4f'|format(g) }}</td>
-        {% endfor %}
+        <td>{{ '%.4f'|format(this_train[m]) }}</td>
+        <td>{{ '%.4f'|format(this_test[m]) }}</td>
+        <td>{{ '%.4f'|format(best_train[m]) }}</td>
+        <td>{{ '%.4f'|format(best_test[m]) }}</td>
+        {% set d = this_test[m] - best_test[m] %}
+        <td class="{% if d >= 0 %}delta-pos{% else %}delta-neg{% endif %}">{{ '%+.4f'|format(d) }}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
-  <div class="card-body" style="font-size:10.5px;color:#6b7280;">
-    Δ = Train − Test. Train 은 final 모델을 학습 데이터에 fit 한 뒤 동일 학습 데이터로 in-sample 스코어링한 결과로,
-    의도적으로 over-optimistic 한 추정치다. Test 와의 양의 gap 이 클수록 메모리제이션(overfit) 신호이며,
-    <span class="gap-mid">|Δ| ≥ 0.05</span> / <span class="gap-high">|Δ| ≥ 0.10</span> 인 셀은 색으로 강조한다.
-    (정확한 임계치는 도메인/지표에 따라 다르며 본 색은 참고용.)
-  </div>
 </div>
 
-<!-- ═══ 4. 곡선 비교 ═══ -->
-<h2><span class="sec-num">4</span> 곡선 비교</h2>
-<div class="grid-2">
-  <div class="chart-box">
-    <h3>ROC Curve</h3>
-    <img src="{{ roc_chart }}" alt="ROC Curve" />
-  </div>
-  <div class="chart-box">
-    <h3>Precision-Recall Curve</h3>
-    <img src="{{ pr_chart }}" alt="PR Curve" />
-  </div>
-</div>
-
-<!-- ═══ 5. Best 모델 상세 ═══ -->
-<h2><span class="sec-num">5</span> Best 모델 상세 — {{ best_model }}</h2>
-
-<h3>Feature Importance (relative, top {{ top_features }} · 전체 분포는 feature_importance.csv)</h3>
+<!-- ═══ 2. Feature Importance ═══ -->
+<h2><span class="sec-num">2</span> Feature Importance — {{ model_name }}</h2>
+<h3>relative · top {{ top_features }} · 전체 분포는 feature_importance.csv</h3>
 <div class="card" style="display: flex; gap: 16px; padding: 12px 14px;">
   <div style="flex: 1;">
     <table style="width: 100%;">
@@ -357,7 +265,10 @@
   </div>
 </div>
 
-<h3>10-분위 분석 (테스트셋, 점수 내림차순) 및 점수 분포</h3>
+<!-- ═══ 3. 모델 상세 (decile / score 분포 / confusion) ═══ -->
+<h2><span class="sec-num">3</span> 모델 상세 — {{ model_name }}</h2>
+
+<h3>점수 분포 · 10-분위 차트</h3>
 <div class="grid-2">
   <div class="chart-box">
     <h3>Score Distribution by Label</h3>
@@ -368,6 +279,7 @@
     <img src="{{ decile_chart }}" alt="Decile Analysis" />
   </div>
 </div>
+
 <div class="card">
   <table>
     <thead>
@@ -428,35 +340,17 @@
   </table>
 </div>
 
-<!-- ═══ 6. 학습 설정 요약 ═══ -->
-<h2><span class="sec-num">6</span> 학습 설정 요약</h2>
-<div class="card">
-  <table>
-    <thead>
-      <tr><th class="left">설정 키</th><th class="left">값</th></tr>
-    </thead>
-    <tbody>
-    {% for k, v in config_summary.items() %}
-      <tr>
-        <td class="left config-key">{{ k }}</td>
-        <td class="left config-val">{{ v }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- ═══ 7. 변수 선택 (optional) ═══ -->
+<!-- ═══ 4. 변수 선택 (메인과 동일) ═══ -->
 {% if selection %}
-<h2><span class="sec-num">7</span> 변수 선택 (Stability Selection)</h2>
+<h2><span class="sec-num">4</span> 변수 선택 (Stability Selection)</h2>
 <div class="header-pills" style="margin-bottom:12px;">
-  <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
+  <span class="pill" style="background:#f3f4f6; color:#374151; border-color:#d1d5db;">
     base: <strong>{{ selection.base_estimator }}</strong>
   </span>
-  <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
+  <span class="pill" style="background:#f3f4f6; color:#374151; border-color:#d1d5db;">
     부분표본 <strong>{{ selection.n_subsamples }}</strong>회
   </span>
-  <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
+  <span class="pill" style="background:#f3f4f6; color:#374151; border-color:#d1d5db;">
     임계값 <strong>{{ '%.2f'|format(selection.threshold) }}</strong>
   </span>
   <span class="pill" style="background:#d1fae5; color:#065f46; border-color:#6ee7b7;">
@@ -469,7 +363,7 @@
   {% endif %}
   <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">
     표 노출 {{ selection.top_n }} / 전체 {{ selection.n_total }}
-    (전체 분포는 feature_selection.csv)
+    (전체 분포는 메인 리포트의 feature_selection.csv)
   </span>
 </div>
 
@@ -509,9 +403,42 @@
 </div>
 {% endif %}
 
-<!-- ═══ 푸터 ═══ -->
+<!-- ═══ 5. 학습 설정 + 튜닝 (본 모형 한정) ═══ -->
+<h2><span class="sec-num">5</span> 학습 설정 + 튜닝 — {{ model_name }}</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr><th class="left">키</th><th class="left">값</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="left config-key">tuned</td>
+        <td class="left config-val">
+          {% if tuned %}
+            <span class="badge badge-blue">YES</span>
+            n_trials = {{ n_trials }}
+            {% if best_value is not none %}, best_value = {{ '%.4f'|format(best_value) }}{% endif %}
+          {% else %}
+            <span class="badge badge-gray">NO</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% if avg_best_iter is not none %}
+      <tr>
+        <td class="left config-key">best_iteration (avg over folds)</td>
+        <td class="left config-val">{{ avg_best_iter }}</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td class="left config-key">params (최종)</td>
+        <td class="left config-val">{{ params_repr }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
 <div class="footer">
-  auto_ml v{{ library_version }} &nbsp;·&nbsp; 본 리포트는 자동 생성됨 &nbsp;·&nbsp; {{ generated_at }}
+  auto_ml v{{ library_version }} &nbsp;·&nbsp; sub-report &nbsp;·&nbsp; {{ generated_at }}
 </div>
 
 </body>
