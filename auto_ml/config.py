@@ -341,6 +341,23 @@ class ScoringConfig:
 
 
 @dataclass
+class ExplainConfig:
+    """SHAP 해석 (auto-ml-explain) 옵션.
+
+    Attributes:
+        input_path: 해석 대상 Parquet 경로 (보통 스코어링 입력과 동일).
+        output_path: 결과 Parquet 저장 경로. wide 포맷:
+            ``<id_columns> + shap_<feature>... + base_value + score``.
+        id_columns: 결과에 보존할 식별자. ScoringConfig 와 동일한 우선순위 —
+            비워두면 top-level ``id_columns`` 또는 artifact metadata 로 fallback.
+    """
+
+    input_path: str = "./data/score_input.parquet"
+    output_path: str = "./artifacts/explanations/shap.parquet"
+    id_columns: list[str] = field(default_factory=list)
+
+
+@dataclass
 class LoggingConfig:
     """작업 로그 옵션.
 
@@ -410,6 +427,7 @@ class AutoMLConfig:
     )
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
+    explain: ExplainConfig = field(default_factory=ExplainConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
@@ -437,6 +455,8 @@ class AutoMLConfig:
             data["reporting"] = ReportingConfig(**data["reporting"])
         if "scoring" in data:
             data["scoring"] = ScoringConfig(**data["scoring"])
+        if "explain" in data:
+            data["explain"] = ExplainConfig(**data["explain"])
         if "logging" in data:
             data["logging"] = LoggingConfig(**data["logging"])
         if "models" in data:

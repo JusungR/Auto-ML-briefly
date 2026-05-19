@@ -130,6 +130,13 @@ scoring:
     - client_id
   threshold: 0.5
 
+# ==== SHAP 해석 =================================================
+explain:
+  input_path:  ./examples/credit/data/score_input.parquet
+  output_path: ./artifacts/credit/explanations/shap.parquet
+  id_columns:
+    - client_id
+
 # ==== 작업 로그 =================================================
 logging:
   log_dir: ./artifacts/credit/logs

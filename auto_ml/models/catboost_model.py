@@ -90,3 +90,10 @@ class CatBoostModel(BaseModel):
     def feature_importance(self) -> dict[str, float]:
         importances = self.model.get_feature_importance()
         return dict(zip(self.feature_columns, map(float, importances)))
+
+    def shap_values(self, X: pd.DataFrame) -> np.ndarray:
+        # CatBoost 는 get_feature_importance(type='ShapValues', data=Pool) 로
+        # (n, n_features + 1) 의 raw-margin SHAP 을 직접 반환. 마지막 열 = base value.
+        pool = self._to_pool(X[self.feature_columns])
+        contrib = self.model.get_feature_importance(type="ShapValues", data=pool)
+        return np.asarray(contrib)

@@ -234,8 +234,18 @@ scoring:
     - user_id
   threshold: 0.5
 
+# ==== SHAP 해석 (auto-ml-explain) ================================
+# 입력 Parquet 의 각 행에 대해 변수별 SHAP 기여도를 계산해 wide 포맷으로 저장.
+# 출력 스키마: <id_columns> + shap_<feature>... + base_value + score
+# (probability 도메인, base + sum(shap) == score 보장)
+explain:
+  input_path: ./data/score_input.parquet
+  output_path: ./artifacts/explanations/shap.parquet
+  id_columns:
+    - user_id
+
 # ==== 작업 로그 =================================================
-# 실행마다 stage(train|score) 별 별도 로그 파일이 ``log_dir`` 에 생성된다.
+# 실행마다 stage(train|score|explain) 별 별도 로그 파일이 ``log_dir`` 에 생성된다.
 # 파일명: <stage>_<YYYYMMDD>_<HHMMSS>.log
 logging:
   log_dir: ./artifacts/logs
