@@ -1,0 +1,106 @@
+"""가중 평균 앙상블 모델.
+
+학습된 BaseModel 인스턴스들을 내부에 보유하고,
+predict_proba / shap_values 를 가중 평균으로 결합한다.
+
+registry.py 에 등록하지 않는다 — 이름+파라미터만으로 인스턴스를
+생성할 수 없기 때문이다 (Trainer 가 직접 생성).
+
+가중치 산출: test_metrics[primary_metric] 에 비례 (높을수록 더 큰 가중치).
+"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+import pandas as pd
+
+from auto_ml.models.base import BaseModel
+
+if TYPE_CHECKING:
+    from auto_ml.models.trainer import ModelResult
+
+
+class EnsembleModel(BaseModel):
+    """학습된 모델들의 가중 평균 앙상블."""
+
+    name = "ensemble"
+
+    def __init__(
+        self,
+        base_models: dict[str, BaseModel],
+        weights: dict[str, float],
+    ) -> None:
+        first = next(iter(base_models.values()))
+        super().__init__(
+            params={},
+            categorical_columns=list(first.categorical_columns),
+            random_state=42,
+            loss="logloss",
+        )
+        self.base_models = base_models      # {model_name: fitted BaseModel}
+        self.weights = weights               # {model_name: normalized weight}
+        self.feature_columns = list(first.feature_columns)
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def from_results(
+        cls,
+        results: dict[str, "ModelResult"],
+        primary_metric: str,
+    ) -> "EnsembleModel":
+        """ModelResult dict 로부터 앙상블을 생성한다.
+
+        가중치는 각 모델의 test_metrics[primary_metric] 에 비례한다.
+        """
+        scores = {name: mr.test_metrics[primary_metric] for name, mr in results.items()}
+        total = sum(scores.values())
+        if total > 0:
+            weights = {name: s / total for name, s in scores.items()}
+        else:
+            weights = {name: 1.0 / len(scores) for name in scores}
+        base_models = {name: mr.model for name, mr in results.items()}
+        return cls(base_models=base_models, weights=weights)
+
+    # ------------------------------------------------------------------
+    def fit(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_valid: pd.DataFrame | None = None,
+        y_valid: pd.Series | None = None,
+        early_stopping_rounds: int | None = None,
+    ) -> "EnsembleModel":
+        """No-op: 서브모델은 이미 학습 완료."""
+        return self
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        proba = np.zeros(len(X), dtype=float)
+        for name, model in self.base_models.items():
+            proba += self.weights[name] * model.predict_proba(X)
+        return proba
+
+    def feature_importance(self) -> dict[str, float]:
+        """서브모델 feature importance 의 가중 평균."""
+        combined: dict[str, float] = {}
+        for name, model in self.base_models.items():
+            w = self.weights[name]
+            for feat, val in model.feature_importance().items():
+                combined[feat] = combined.get(feat, 0.0) + w * val
+        return combined
+
+    def shap_values(self, X: pd.DataFrame) -> np.ndarray:
+        """서브모델 raw-margin SHAP 의 가중 평균.
+
+        각 서브모델은 원본 피처 공간 (n, n_features+1) 을 반환하므로
+        앙상블도 동일한 shape 를 유지한다.
+        """
+        result: np.ndarray | None = None
+        for name, model in self.base_models.items():
+            sv = model.shap_values(X)
+            if result is None:
+                result = self.weights[name] * sv
+            else:
+                result = result + self.weights[name] * sv
+        assert result is not None
+        return result

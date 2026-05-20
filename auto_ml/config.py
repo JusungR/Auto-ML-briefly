@@ -325,6 +325,22 @@ class ReportingConfig:
 
 
 @dataclass
+class EnsembleConfig:
+    """앙상블 옵션.
+
+    Attributes:
+        enabled: True 면 개별 모델 학습 완료 후 가중 평균 앙상블을 추가로 생성한다.
+                 활성화된 모델이 1개 이하면 자동으로 건너뛴다.
+        strategy: 가중치 산출 방식.
+                  ``"weighted_average"``: test primary_metric 에 비례.
+                  현재는 이 값만 지원하며, 미래 확장을 위해 필드로 노출한다.
+    """
+
+    enabled: bool = True
+    strategy: str = "weighted_average"
+
+
+@dataclass
 class ScoringConfig:
     """주기적 배치 스코어링 옵션.
 
@@ -428,8 +444,10 @@ class AutoMLConfig:
             "lgbm": ModelConfig(),
             "xgb": ModelConfig(),
             "catboost": ModelConfig(),
+            "elasticnet": ModelConfig(enabled=False),
         }
     )
+    ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     explain: ExplainConfig = field(default_factory=ExplainConfig)
@@ -464,6 +482,8 @@ class AutoMLConfig:
             data["explain"] = ExplainConfig(**data["explain"])
         if "logging" in data:
             data["logging"] = LoggingConfig(**data["logging"])
+        if "ensemble" in data:
+            data["ensemble"] = EnsembleConfig(**data["ensemble"])
         if "models" in data:
             data["models"] = {
                 name: ModelConfig(**cfg) for name, cfg in data["models"].items()
