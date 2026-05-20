@@ -1,0 +1,12 @@
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | ============================================================
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Auto-ML scoring started
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | ============================================================
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Log file: artifacts/logs/score_20260519_024016.log
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Loading artifact: /tmp/pytest-of-root/pytest-23/test_scoring_uses_top_level_id0/artifacts/models/best.joblib
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Reading input parquet: /tmp/pytest-of-root/pytest-23/test_scoring_uses_top_level_id0/score_input.parquet
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Input: 60 rows × 5 cols | missing 0.00%
+2026-05-19 02:40:16 | INFO    | auto_ml.scorer | Scored 60 rows (model=lgbm, threshold=0.500)
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Wrote scored output: /tmp/pytest-of-root/pytest-23/test_scoring_uses_top_level_id0/artifacts/scores/scores.parquet (rows=60)
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | ============================================================
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | Scoring completed in 0.0s
+2026-05-19 02:40:16 | INFO    | auto_ml.scoring.runner | ============================================================

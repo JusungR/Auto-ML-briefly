@@ -1,0 +1,45 @@
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Log file: artifacts/credit/logs/train_20260514_125849.log
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Auto-ML training pipeline started
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Loading train data: ./examples/credit/data/train.parquet
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Loading test data:  ./examples/credit/data/test.parquet
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Features — total=23, numeric=20, categorical=3
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Sizes — train=24000, test=6000
+2026-05-14 12:58:49 | INFO    | auto_ml.pipeline | Step 1/4: preprocessing (null -> outlier -> scaling)
+2026-05-14 12:58:50 | INFO    | auto_ml.pipeline | Step 2/4: stability selection (base=lasso, n_subsamples=80, threshold=0.60)
+2026-05-14 12:59:08 | INFO    | auto_ml.pipeline | Stability selection kept 19 / 23 features
+2026-05-14 12:59:08 | INFO    | auto_ml.pipeline | Step 3/4: model training (3 algorithms)
+2026-05-14 12:59:08 | INFO    | auto_ml.trainer | === Training pipeline: lgbm ===
+2026-05-14 12:59:08 | INFO    | auto_ml.tuning | Tuning lgbm — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-14 12:59:38 | INFO    | auto_ml.tuning | Tuning lgbm done — best roc_auc=0.7853, params={'learning_rate': 0.012184186502221764, 'num_leaves': 112, 'min_data_in_leaf': 64, 'feature_fraction': 0.8832290311184181, 'bagging_fraction': 0.608233797718321, 'reg_lambda': 5.360294728728285}
+2026-05-14 12:59:40 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=262)
+2026-05-14 12:59:41 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=263)
+2026-05-14 12:59:42 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=91)
+2026-05-14 12:59:43 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=176)
+2026-05-14 12:59:44 | INFO    | auto_ml.trainer | === Training pipeline: xgb ===
+2026-05-14 12:59:44 | INFO    | auto_ml.tuning | Tuning xgb — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-14 13:00:47 | INFO    | auto_ml.tuning | Tuning xgb done — best roc_auc=0.7848, params={'learning_rate': 0.018837202040162843, 'max_depth': 6, 'subsample': 0.7420094138729318, 'colsample_bytree': 0.9342111385693108, 'min_child_weight': 8.622965110497987, 'reg_lambda': 0.0067656712428457826}
+2026-05-14 13:00:48 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=191)
+2026-05-14 13:00:50 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=221)
+2026-05-14 13:00:51 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=173)
+2026-05-14 13:00:52 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=133)
+2026-05-14 13:00:54 | INFO    | auto_ml.trainer | === Training pipeline: catboost ===
+2026-05-14 13:00:54 | INFO    | auto_ml.tuning | Tuning catboost — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-14 13:02:49 | INFO    | auto_ml.tuning | Tuning catboost done — best roc_auc=0.7845, params={'learning_rate': 0.018659959624904916, 'depth': 5, 'l2_leaf_reg': 5.72280788469014}
+2026-05-14 13:02:52 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=629)
+2026-05-14 13:02:54 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=440)
+2026-05-14 13:02:57 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=674)
+2026-05-14 13:03:00 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=664)
+2026-05-14 13:03:03 | INFO    | auto_ml.trainer | Best model: catboost (roc_auc=0.7790)
+2026-05-14 13:03:03 | INFO    | auto_ml.pipeline | Step 4/4: report generation
+2026-05-14 13:03:05 | INFO    | auto_ml.report | HTML report written: artifacts/credit/reports/report.html
+2026-05-14 13:03:12 | INFO    | auto_ml.report | PDF report written: artifacts/credit/reports/report.pdf
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline | Saved artifact: artifacts/credit/models/best.joblib
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline | Pipeline completed in 263.3s — best=catboost, roc_auc=0.7790
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline |   log_file     : artifacts/credit/logs/train_20260514_125849.log
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline |   report_html  : artifacts/credit/reports/report.html
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline |   report_pdf   : artifacts/credit/reports/report.pdf
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline |   artifact     : artifacts/credit/models/best.joblib
+2026-05-14 13:03:12 | INFO    | auto_ml.pipeline | ============================================================
