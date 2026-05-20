@@ -1,0 +1,40 @@
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Log file: artifacts/titanic/logs/train_20260514_124956.log
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Auto-ML training pipeline started
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Loading train data: ./data/titanic/train.parquet
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Loading test data:  ./data/titanic/test.parquet
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Features — total=7, numeric=4, categorical=3
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Sizes — train=712, test=179
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Step 1/4: preprocessing (null -> outlier -> scaling)
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Step 2/4: stability selection (base=lasso, n_subsamples=50, threshold=0.60)
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Stability selection kept 4 / 7 features
+2026-05-14 12:49:56 | INFO    | auto_ml.pipeline | Step 3/4: model training (3 algorithms)
+2026-05-14 12:49:56 | INFO    | auto_ml.trainer | === Training pipeline: lgbm ===
+2026-05-14 12:49:56 | INFO    | auto_ml.tuning | Tuning lgbm — n_trials=10, cv_folds=3, metric=roc_auc
+2026-05-14 12:49:58 | INFO    | auto_ml.tuning | Tuning lgbm done — best roc_auc=0.8694, params={'learning_rate': 0.08012737503998542, 'num_leaves': 14, 'min_data_in_leaf': 18, 'feature_fraction': 0.7465447373174767, 'bagging_fraction': 0.7824279936868144}
+2026-05-14 12:49:58 | INFO    | auto_ml.trainer |   fold 1/3 done (best_iter=24)
+2026-05-14 12:49:58 | INFO    | auto_ml.trainer |   fold 2/3 done (best_iter=37)
+2026-05-14 12:49:58 | INFO    | auto_ml.trainer |   fold 3/3 done (best_iter=83)
+2026-05-14 12:49:58 | INFO    | auto_ml.trainer | === Training pipeline: xgb ===
+2026-05-14 12:49:58 | INFO    | auto_ml.tuning | Tuning xgb — n_trials=10, cv_folds=3, metric=roc_auc
+2026-05-14 12:50:00 | INFO    | auto_ml.tuning | Tuning xgb done — best roc_auc=0.8723, params={'learning_rate': 0.14447746112718687, 'max_depth': 4, 'subsample': 0.8056937753654446, 'colsample_bytree': 0.836965827544817, 'min_child_weight': 1.4180537144799796}
+2026-05-14 12:50:00 | INFO    | auto_ml.trainer |   fold 1/3 done (best_iter=12)
+2026-05-14 12:50:00 | INFO    | auto_ml.trainer |   fold 2/3 done (best_iter=35)
+2026-05-14 12:50:00 | INFO    | auto_ml.trainer |   fold 3/3 done (best_iter=85)
+2026-05-14 12:50:00 | INFO    | auto_ml.trainer | === Training pipeline: catboost ===
+2026-05-14 12:50:00 | INFO    | auto_ml.tuning | Tuning catboost — n_trials=10, cv_folds=3, metric=roc_auc
+2026-05-14 12:50:02 | INFO    | auto_ml.tuning | Tuning catboost done — best roc_auc=0.8688, params={'learning_rate': 0.16967533607196555, 'depth': 5, 'l2_leaf_reg': 2.636424704863906}
+2026-05-14 12:50:02 | INFO    | auto_ml.trainer |   fold 1/3 done (best_iter=12)
+2026-05-14 12:50:02 | INFO    | auto_ml.trainer |   fold 2/3 done (best_iter=14)
+2026-05-14 12:50:02 | INFO    | auto_ml.trainer |   fold 3/3 done (best_iter=36)
+2026-05-14 12:50:02 | INFO    | auto_ml.trainer | Best model: catboost (roc_auc=0.8400)
+2026-05-14 12:50:02 | INFO    | auto_ml.pipeline | Step 4/4: report generation
+2026-05-14 12:50:04 | INFO    | auto_ml.report | HTML report written: artifacts/titanic/reports/report.html
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline | Saved artifact: artifacts/titanic/models/best.joblib
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline | Pipeline completed in 7.6s — best=catboost, roc_auc=0.8400
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline |   log_file     : artifacts/titanic/logs/train_20260514_124956.log
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline |   report_html  : artifacts/titanic/reports/report.html
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline |   artifact     : artifacts/titanic/models/best.joblib
+2026-05-14 12:50:04 | INFO    | auto_ml.pipeline | ============================================================

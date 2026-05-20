@@ -1,0 +1,30 @@
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Log file: artifacts/logs/train_20260518_035605.log
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Auto-ML training pipeline started
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Loading train data: /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/train.parquet
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Train: 240 rows × 4 cols | target 'target': 129/240 positive (53.75%) | missing 0.00%
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Loading test data:  /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/test.parquet
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Test:  60 rows × 4 cols | target 'target': 39/60 positive (65.00%) | missing 0.00%
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Features — total=3, numeric=2, categorical=1
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Sizes — train=240, test=60
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Step 1/4: preprocessing (null -> outlier -> scaling)
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Step 2/4: feature selection disabled — using all features
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Step 3/4: model training (3 algorithms)
+2026-05-18 03:56:05 | INFO    | auto_ml.trainer | === Training pipeline: lgbm ===
+2026-05-18 03:56:05 | INFO    | auto_ml.trainer |   fold 1/2 done (best_iter=7)
+2026-05-18 03:56:05 | INFO    | auto_ml.trainer |   fold 2/2 done (best_iter=6)
+2026-05-18 03:56:05 | INFO    | auto_ml.trainer | Best model: lgbm (roc_auc=0.7772)
+2026-05-18 03:56:05 | INFO    | auto_ml.pipeline | Step 4/4: report generation
+2026-05-18 03:56:06 | INFO    | auto_ml.report | HTML report written: /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/reports/report.html
+2026-05-18 03:56:06 | INFO    | auto_ml.report | Feature importance CSV written: /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/reports/feature_importance.csv (rows=3)
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline | Saved artifact: /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/models/best.joblib
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline | Wrote test predictions: /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/predictions/test_predictions.parquet (rows=60, id_cols=(none))
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline | Pipeline completed in 1.0s — best=lgbm, roc_auc=0.7772
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline |   log_file     : artifacts/logs/train_20260518_035605.log
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline |   report_html  : /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/reports/report.html
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline |   feature_importance_csv : /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/reports/feature_importance.csv
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline |   artifact     : /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/models/best.joblib
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline |   test_predictions : /tmp/pytest-of-root/pytest-9/test_train_predictions_without0/artifacts/predictions/test_predictions.parquet
+2026-05-18 03:56:06 | INFO    | auto_ml.pipeline | ============================================================

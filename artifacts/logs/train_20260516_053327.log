@@ -1,0 +1,30 @@
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Log file: artifacts/logs/train_20260516_053327.log
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Auto-ML training pipeline started
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Loading train data: /tmp/auto_ml_deg/train.parquet
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Train: 240 rows × 6 cols | target 'target': 116/240 positive (48.33%) | missing 0.00%
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Loading test data:  /tmp/auto_ml_deg/test.parquet
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Test:  60 rows × 6 cols | target 'target': 24/60 positive (40.00%) | missing 0.00%
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Features — total=5, numeric=3, categorical=2
+2026-05-16 05:33:27 | WARNING | auto_ml.pipeline | [train] All-zero columns (1): ['all_zero'] — NaN 제외 모든 값이 0. 카운터 누락 또는 ETL 오류일 가능성.
+2026-05-16 05:33:27 | WARNING | auto_ml.pipeline | [train] Constant columns (1): ['constant'] — 단일 값으로 채워져 모델에 정보를 주지 못함. features.csv 에서 제거 권장.
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Sizes — train=240, test=60
+2026-05-16 05:33:27 | INFO    | auto_ml.pipeline | Step 1/4: preprocessing (null -> outlier -> scaling)
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | Step 2/4: feature selection disabled — using all features
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | Step 3/4: model training (3 algorithms)
+2026-05-16 05:33:28 | INFO    | auto_ml.trainer | === Training pipeline: lgbm ===
+2026-05-16 05:33:28 | INFO    | auto_ml.trainer |   fold 1/2 done (best_iter=2)
+2026-05-16 05:33:28 | INFO    | auto_ml.trainer |   fold 2/2 done (best_iter=1)
+2026-05-16 05:33:28 | INFO    | auto_ml.trainer | Best model: lgbm (roc_auc=1.0000)
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | Step 4/4: report generation
+2026-05-16 05:33:28 | INFO    | auto_ml.report | HTML report written: /tmp/auto_ml_deg/artifacts/reports/report.html
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | Saved artifact: /tmp/auto_ml_deg/artifacts/models/best.joblib
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | Wrote test predictions: /tmp/auto_ml_deg/artifacts/predictions/test_predictions.parquet (rows=60, id_cols=(none))
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | Pipeline completed in 0.7s — best=lgbm, roc_auc=1.0000
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline |   log_file     : artifacts/logs/train_20260516_053327.log
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline |   report_html  : /tmp/auto_ml_deg/artifacts/reports/report.html
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline |   artifact     : /tmp/auto_ml_deg/artifacts/models/best.joblib
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline |   test_predictions : /tmp/auto_ml_deg/artifacts/predictions/test_predictions.parquet
+2026-05-16 05:33:28 | INFO    | auto_ml.pipeline | ============================================================

@@ -1,0 +1,12 @@
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | ============================================================
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Auto-ML explanation started
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | ============================================================
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Log file: artifacts/logs/explain_20260519_150812.log
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Loading artifact: /tmp/pytest-of-root/pytest-25/test_explain_id_columns_overri0/artifacts/models/best.joblib
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Reading input parquet: /tmp/pytest-of-root/pytest-25/test_explain_id_columns_overri0/score_input.parquet
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Input: 60 rows × 4 cols | missing 0.00%
+2026-05-19 15:08:12 | INFO    | auto_ml.explainer | Explained 60 rows over 3 features (model=lgbm)
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Wrote SHAP output: /tmp/pytest-of-root/pytest-25/test_explain_id_columns_overri0/artifacts/explain/shap.parquet (rows=60, cols=6)
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | ============================================================
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | Explanation completed in 0.0s
+2026-05-19 15:08:12 | INFO    | auto_ml.explain.runner | ============================================================
