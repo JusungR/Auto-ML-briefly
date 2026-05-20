@@ -18,17 +18,20 @@ dependencies = [
     "lightgbm>=4.1,<5.0",
     "xgboost>=2.0,<3.0",
     "catboost>=1.2,<2.0",
-    "optuna>=3.4,<4.0",
+    "optuna>=3.4,<=4.0",
     "matplotlib>=3.7,<4.0",
     "jinja2>=3.1,<4.0",
-    "weasyprint>=60.0",
+    "weasyprint>=47.0",
     "pyyaml>=6.0",
     "joblib>=1.3",
+    "cloudpickle>=3.0",
 ]
 
 [project.scripts]
 auto-ml-train = "auto_ml.pipeline:cli_train"
 auto-ml-score = "auto_ml.scoring.runner:cli_score"
+auto-ml-explain = "auto_ml.explain.runner:cli_explain"
+auto-ml-set-best = "auto_ml.cli.set_best:cli_set_best"
 
 [tool.setuptools.packages.find]
 where = ["."]

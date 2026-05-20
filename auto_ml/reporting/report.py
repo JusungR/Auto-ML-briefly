@@ -103,6 +103,17 @@ class ReportBuilder:
                 "Feature selection CSV written: %s (rows=%d)", sel_csv, len(selection_full),
             )
 
+        # 비-best 모형마다 sub-report 생성 (best 는 메인 리포트가 곧 그 것이므로 제외).
+        sub_paths: dict[str, dict[str, Path]] = {}
+        for name, mr in result.results.items():
+            if name == result.best_model_name:
+                continue
+            sub_paths[name] = self._build_sub_report(
+                name=name, mr=mr, result=result, selection=selection, out_dir=out_dir,
+            )
+        if sub_paths:
+            outputs["sub_reports"] = sub_paths  # type: ignore[assignment]
+
         return outputs
 
     # ------------------------------------------------------------------
@@ -342,3 +353,110 @@ class ReportBuilder:
         from weasyprint import HTML  # type: ignore
 
         HTML(string=html_str).write_pdf(str(pdf_path))
+
+    # ------------------------------------------------------------------
+    def _build_sub_report(
+        self,
+        name: str,
+        mr: Any,
+        result: TrainingResult,
+        selection: SelectionResult | None,
+        out_dir: Path,
+    ) -> dict[str, Path]:
+        """비-best 모형 1개에 대한 sub-report (HTML/PDF + importance CSV) 생성.
+
+        Args:
+            name: 모형 이름.
+            mr: 해당 모형의 ``ModelResult``.
+            result: 전체 학습 결과 (best 비교에 사용).
+            selection: 변수 선택 결과 (모형 무관). 활성화 시 sub-report 에 같이 노출.
+            out_dir: 메인 리포트의 ``output_dir``. sub 는 ``<out_dir>/sub/<name>/`` 에 저장.
+
+        Returns:
+            ``{"html": ..., "pdf": ..., "feature_importance_csv": ...}`` (생성된 것만).
+        """
+        sub_dir = out_dir / "sub" / name
+        sub_dir.mkdir(parents=True, exist_ok=True)
+
+        importance_full = self._prepare_importance(mr.feature_importance)
+        top_n = self.config.reporting.top_importance_features
+        importance_rows = (
+            importance_full if top_n is None else importance_full[:top_n]
+        )
+
+        # plots 는 main 과 동일 헬퍼 사용.
+        importance_chart = plots.feature_importance_plot(
+            {r["feature"]: r["importance_relative"] for r in importance_rows},
+            top_n=None,
+            xlabel="Importance (relative, sums to 1)",
+        )
+        proba_by_label = {
+            0: mr.test_proba[result.test_y == 0],
+            1: mr.test_proba[result.test_y == 1],
+        }
+        score_dist_chart = plots.score_distribution_plot(proba_by_label)
+        decile_rows, decile_chart = plots.decile_analysis(result.test_y, mr.test_proba)
+        cm = confusion(result.test_y, mr.test_proba, threshold=0.5)
+
+        # 변수 선택 컨텍스트 (메인과 동일 — 모형 무관).
+        selection_full = (
+            self._prepare_selection(selection) if selection is not None else None
+        )
+        selection_ctx = self._build_selection_context(selection, selection_full)
+
+        best = result.best
+        best_iters = [bi for bi in mr.fold_best_iterations if bi is not None]
+        avg_best_iter = int(np.mean(best_iters)) if best_iters else None
+
+        template = self.env.get_template("sub_report.html.j2")
+        html_str = template.render(
+            title=self.config.reporting.title,
+            generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            model_name=name,
+            best_model_name=result.best_model_name,
+            primary_metric=result.primary_metric,
+            metric_value=mr.test_metrics[result.primary_metric],
+            best_score=best.test_metrics[result.primary_metric],
+            metric_names=METRIC_NAMES,
+            this_test=mr.test_metrics,
+            this_train=mr.train_metrics,
+            best_test=best.test_metrics,
+            best_train=best.train_metrics,
+            importance_chart=importance_chart,
+            importance_rows=importance_rows,
+            top_features=len(importance_rows),
+            score_dist_chart=score_dist_chart,
+            decile_chart=decile_chart,
+            decile_rows=decile_rows,
+            confusion=cm.tolist(),
+            selection=selection_ctx,
+            tuned=mr.tuning is not None,
+            n_trials=mr.tuning.n_trials if mr.tuning else 0,
+            best_value=mr.tuning.best_value if mr.tuning else None,
+            avg_best_iter=avg_best_iter,
+            params_repr=repr(mr.params),
+            library_version=__version__,
+        )
+
+        out: dict[str, Path] = {}
+        if self.config.reporting.generate_html:
+            html_path = sub_dir / "report.html"
+            html_path.write_text(html_str, encoding="utf-8")
+            out["html"] = html_path
+            logger.info("Sub-report HTML written: %s", html_path)
+        if self.config.reporting.generate_pdf:
+            pdf_path = sub_dir / "report.pdf"
+            self._html_to_pdf(html_str, pdf_path)
+            out["pdf"] = pdf_path
+            logger.info("Sub-report PDF written: %s", pdf_path)
+
+        imp_csv = sub_dir / "feature_importance.csv"
+        self._write_csv(
+            imp_csv, importance_full,
+            ["feature", "importance_gain", "importance_relative"],
+        )
+        out["feature_importance_csv"] = imp_csv
+        logger.info(
+            "Sub-report importance CSV: %s (rows=%d)", imp_csv, len(importance_full),
+        )
+        return out

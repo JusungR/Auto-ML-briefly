@@ -172,42 +172,94 @@ class AutoMLPipeline:
             outputs["feature_selection_csv"] = report_paths["feature_selection_csv"]
 
         # 6) artifact 저장 --------------------------------------------------
-        best_result = result.best
-        extra = {
-            "best_iteration": best_result.model.best_iteration,
-            "fold_best_iterations": best_result.fold_best_iterations,
-            "best_params": best_result.params,
-            "tuning": (
-                {
-                    "best_value": best_result.tuning.best_value,
-                    "n_trials": best_result.tuning.n_trials,
-                }
-                if best_result.tuning is not None
-                else None
-            ),
-        }
-        if selection is not None:
-            extra["feature_selection"] = {
-                "base_estimator": selection.base_estimator,
-                "threshold": selection.threshold,
-                "n_subsamples": selection.n_subsamples,
-                "fallback_used": selection.fallback_used,
-                "frequencies": selection.frequencies,
+        # 모든 모형을 sub-artifact (artifact_dir/models/<name>.joblib) 로 독립 저장한 뒤,
+        # best 의 동일 내용을 best.joblib 으로 한 번 더 저장한다. 이렇게 두면
+        # auto-ml-set-best 가 재학습 없이 best 를 교체할 수 있고, 각 sub-artifact
+        # 만으로도 Scorer/Explainer 가 독립적으로 동작한다.
+        sub_dir = Path(cfg.artifact_dir) / "models"
+        sub_artifact_paths: dict[str, Path] = {}
+        primary_metric_name = cfg.training.primary_metric
+        for name, mr in result.results.items():
+            sub_extra = {
+                "best_iteration": mr.model.best_iteration,
+                "fold_best_iterations": mr.fold_best_iterations,
+                "best_params": mr.params,
+                "tuning": (
+                    {"best_value": mr.tuning.best_value, "n_trials": mr.tuning.n_trials}
+                    if mr.tuning is not None
+                    else None
+                ),
             }
-        metadata = ArtifactMetadata(
+            if selection is not None:
+                sub_extra["feature_selection"] = {
+                    "base_estimator": selection.base_estimator,
+                    "threshold": selection.threshold,
+                    "n_subsamples": selection.n_subsamples,
+                    "fallback_used": selection.fallback_used,
+                    "frequencies": selection.frequencies,
+                }
+            sub_metadata = ArtifactMetadata(
+                target_column=cfg.target_column,
+                feature_columns=feature_columns,
+                selected_features=selected_features,
+                categorical_columns=categorical_columns,
+                id_columns=cfg.id_columns,
+                model_name=mr.name,
+                primary_metric=primary_metric_name,
+                metric_value=mr.test_metrics[primary_metric_name],
+                extra=sub_extra,
+            )
+            sub_path = sub_dir / f"{name}.joblib"
+            save_artifact(sub_path, preprocessor, mr.model, sub_metadata)
+            sub_artifact_paths[name] = sub_path
+            logger.info("Saved sub-artifact (%s): %s", name, sub_path)
+
+        # best 는 sub 중 하나의 복사본. metadata 도 그대로 재사용.
+        best_result = result.best
+        best_metadata = ArtifactMetadata(
             target_column=cfg.target_column,
             feature_columns=feature_columns,
             selected_features=selected_features,
             categorical_columns=categorical_columns,
             id_columns=cfg.id_columns,
             model_name=best_result.name,
-            primary_metric=cfg.training.primary_metric,
-            metric_value=best_result.test_metrics[cfg.training.primary_metric],
-            extra=extra,
+            primary_metric=primary_metric_name,
+            metric_value=best_result.test_metrics[primary_metric_name],
+            extra={
+                "best_iteration": best_result.model.best_iteration,
+                "fold_best_iterations": best_result.fold_best_iterations,
+                "best_params": best_result.params,
+                "tuning": (
+                    {
+                        "best_value": best_result.tuning.best_value,
+                        "n_trials": best_result.tuning.n_trials,
+                    }
+                    if best_result.tuning is not None
+                    else None
+                ),
+                "best_selection": (
+                    "user_override" if cfg.training.best_model is not None
+                    else "auto_by_metric"
+                ),
+                **(
+                    {
+                        "feature_selection": {
+                            "base_estimator": selection.base_estimator,
+                            "threshold": selection.threshold,
+                            "n_subsamples": selection.n_subsamples,
+                            "fallback_used": selection.fallback_used,
+                            "frequencies": selection.frequencies,
+                        }
+                    }
+                    if selection is not None
+                    else {}
+                ),
+            },
         )
         artifact_path = Path(cfg.artifact_dir) / ARTIFACT_FILENAME
-        save_artifact(artifact_path, preprocessor, best_result.model, metadata)
+        save_artifact(artifact_path, preprocessor, best_result.model, best_metadata)
         outputs["artifact"] = artifact_path
+        outputs["sub_artifacts"] = sub_dir  # type: ignore[assignment]
         logger.info("Saved artifact: %s", artifact_path)
 
         # 7) test 예측 export ----------------------------------------------

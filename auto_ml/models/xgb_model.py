@@ -142,3 +142,11 @@ class XGBModel(BaseModel):
         score = booster.get_score(importance_type="gain")
         # XGBoost 는 사용되지 않은 feature 를 dict 에서 빠뜨리므로 0 으로 채워준다.
         return {name: float(score.get(name, 0.0)) for name in self.feature_columns}
+
+    def shap_values(self, X: pd.DataFrame) -> np.ndarray:
+        # Booster.predict(pred_contribs=True) 는 (n, n_features + 1) 반환.
+        # 마지막 열은 bias term (= base value, raw-margin 도메인).
+        X_in = self._encode_transform(X[self.feature_columns])
+        dmat = xgb.DMatrix(X_in.values, feature_names=list(X_in.columns))
+        contrib = self.model.get_booster().predict(dmat, pred_contribs=True)
+        return np.asarray(contrib)

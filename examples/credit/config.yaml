@@ -49,6 +49,7 @@ training:
   random_state: 42
   early_stopping_rounds: 50
   primary_metric: roc_auc
+  best_model: null                          # 자동 선정 — 강제하려면 lgbm | xgb | catboost
 
 # ==== 베이지안 하이퍼파라미터 최적화 ============================
 tuning:
@@ -129,6 +130,13 @@ scoring:
   id_columns:
     - client_id
   threshold: 0.5
+
+# ==== SHAP 해석 =================================================
+explain:
+  input_path:  ./examples/credit/data/score_input.parquet
+  output_path: ./artifacts/credit/explanations/shap.parquet
+  id_columns:
+    - client_id
 
 # ==== 작업 로그 =================================================
 logging:

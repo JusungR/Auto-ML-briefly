@@ -74,3 +74,18 @@ class BaseModel(ABC):
     @abstractmethod
     def feature_importance(self) -> dict[str, float]:
         """feature 별 중요도를 dict 로 반환한다 (정렬되지 않은 형태)."""
+
+    @abstractmethod
+    def shap_values(self, X: pd.DataFrame) -> np.ndarray:
+        """건별·변수별 SHAP 기여도 (raw-margin / logit 도메인).
+
+        Returns:
+            ``(n_samples, n_features + 1)`` shape 의 ndarray. 컬럼 순서는
+            ``self.feature_columns`` 와 동일하며, **마지막 열은 base value**
+            (모델의 기대 출력 = 평균 raw margin) 다.
+
+            가법성: ``shap[:, :-1].sum(axis=1) + shap[:, -1]`` 가 모델의
+            raw margin 예측과 (수치오차 이내로) 일치한다.
+
+            확률 도메인으로의 변환은 호출자(Explainer) 가 담당한다.
+        """
