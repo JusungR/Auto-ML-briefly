@@ -11,7 +11,7 @@ auto_ml/
 ├── pipeline.py            학습 파이프라인 (auto-ml-train)
 ├── preprocessing/         1) 결측 → 2) 이상치 → 2.5) skew 변환 → 3) 스케일링
 ├── feature_selection/     Stability Selection 변수 선택
-├── models/                LGBM / XGBoost / CatBoost 래퍼 + Trainer
+├── models/                LGBM / XGBoost / CatBoost / ElasticNet 래퍼 + Ensemble + Trainer
 ├── tuning/                Optuna 베이지안 하이퍼파라미터 최적화
 ├── reporting/             HTML + PDF 리포트 (동일 내용)
 ├── scoring/               배치 스코어링 (auto-ml-score)
@@ -25,10 +25,11 @@ auto_ml/
 2. **변수 선택** (선택) — Stability Selection (Meinshausen & Bühlmann, 2010).
    전처리 직후 적용하여 안정적으로 선택되는 변수만 모델에 전달한다.
    `feature_selection.enabled: false` (기본값) 이면 건너뛴다.
-3. **모형 적합** — LGBM / XGBoost / CatBoost 3종에 대해 (a) Optuna TPE 로
+3. **모형 적합** — LGBM / XGBoost / CatBoost / ElasticNet 4종에 대해 (a) Optuna TPE 로
    하이퍼파라미터 베이지안 최적화 → (b) StratifiedKFold OOF 평가 →
-   (c) 학습 전체로 최종 fit → (d) 테스트 데이터로 평가. primary_metric
-   (기본 ROC-AUC) 기준으로 best 모델을 선정한다.
+   (c) 학습 전체로 최종 fit → (d) 테스트 데이터로 평가. 개별 모델 학습 완료 후
+   `ensemble.enabled: true` 이면 가중 평균 앙상블을 자동으로 추가 생성한다.
+   primary_metric (기본 ROC-AUC) 기준으로 best 모델(앙상블 포함)을 선정한다.
 4. **보고서 산출** — HTML / PDF 동일 내용 (Jinja2 + WeasyPrint). 모델 비교표,
    CV(OOF) 비교, **오버핏 점검 (Train vs Holdout, Δ)**, 튜닝 결과, ROC / PR 곡선,
    feature importance, score 분포, confusion matrix 포함.
@@ -274,30 +275,98 @@ HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 �
 
 ## 모델 래퍼
 
-`auto_ml/models/` 의 세 래퍼 (`LGBMModel`, `XGBModel`, `CatBoostModel`) 는 모두
-동일한 인터페이스(`fit / predict_proba / feature_importance`) 를 따른다. 차이는
-범주형 처리 방식과 early_stopping 구현이다.
+`auto_ml/models/` 의 래퍼들은 모두 동일한 인터페이스
+(`fit / predict_proba / feature_importance / shap_values`) 를 따른다.
 
-| 모델 | 범주형 처리 | early_stopping 적용 | Focal Loss | 비고 |
+| 모델 | 범주형 처리 | early_stopping | Focal Loss | 비고 |
 |---|---|---|---|---|
-| `LGBMModel` | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | O (custom objective callable) | 가장 빠름 |
-| `XGBModel` | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용, `_encoders` 보관) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | O (custom objective callable, `base_score=0.5` 자동 세팅) | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
-| `CatBoostModel` | native (`cat_features` 인덱스 전달) | 학습 인자 `early_stopping_rounds` | O (`PythonUserDefinedObjective` 클래스) | `allow_writing_files: false` 권장 — 운영 임시 파일 차단 |
+| `LGBMModel` | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | O | 가장 빠름 |
+| `XGBModel` | 컬럼별 `LabelEncoder` (`_encoders` 보관) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | O | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
+| `CatBoostModel` | native (`cat_features` 인덱스 전달) | 학습 인자 `early_stopping_rounds` | O (`PythonUserDefinedObjective`) | `allow_writing_files: false` 권장 |
+| `ElasticNetModel` | 내부 `OneHotEncoder` (학습 시 fit → 스코어링 재사용, `handle_unknown="ignore"`) | 해당 없음 (무시) | X | sklearn SAGA 기반 L1+L2 규제 선형 모델. SHAP 에 `shap.LinearExplainer` 사용 |
+| `EnsembleModel` | 서브모델에 위임 | 해당 없음 (no-op) | X | Trainer 가 자동 생성. 레지스트리 미등록 (이름+파라미터만으로 생성 불가) |
 
-3 모델 모두 동일한 전처리 결과와 (활성 시) 변수 선택 채택 컬럼 셋을 공유한 채
-병렬 학습되고, **테스트 데이터 `primary_metric` 점수가 가장 좋은 모델 1개**가
+모든 모델은 동일한 전처리 결과와 (활성 시) 변수 선택 채택 컬럼 셋을 공유한 채
+학습된다. **테스트 데이터 `primary_metric` 점수가 가장 좋은 모델(앙상블 포함)**이
 best 로 선정되어 artifact 에 저장된다.
 
 ### Trainer 흐름
 
-`auto_ml/models/trainer.py` 의 `ModelTrainer` 가 모델별로 다음을 수행:
+`auto_ml/models/trainer.py` 의 `Trainer` 가 모델별로 다음을 수행:
 
 1. (옵션) `HyperparameterOptimizer` 가 Optuna TPE 로 `tuning.cv_folds` OOF
    평균 `primary_metric` 을 최대화하는 파라미터 탐색.
 2. 튜닝된(또는 `fixed_params` 만) 파라미터로 `training.cv_folds` StratifiedKFold
    OOF 평가. 각 fold 의 best_iter 평균이 리포트의 `best_iter (avg)` 로 표기됨.
-3. 학습 데이터 전체로 최종 fit (early_stopping 비활성).
+3. 학습 데이터 전체로 최종 fit.
 4. 테스트 데이터로 평가 → 모델별 holdout 점수 산출.
+
+모든 개별 모델 학습 완료 후, `ensemble.enabled: true` 이고 활성화된 모델이 2개
+이상이면 `EnsembleModel` 을 자동 생성해 `results["ensemble"]` 로 추가한다. OOF
+예측은 서브모델 OOF 의 가중 평균(재학습 없음), test/train 예측은
+`EnsembleModel.predict_proba()` 로 실시간 계산한다.
+
+## 앙상블
+
+### 개요
+
+`ensemble.enabled: true` (기본값) 로 설정하면 개별 모델 학습 완료 직후
+`EnsembleModel` 이 자동으로 생성된다.
+
+```yaml
+ensemble:
+  enabled: true
+  strategy: weighted_average    # 현재 지원: weighted_average
+```
+
+### 가중치 산출
+
+각 서브모델의 테스트 `primary_metric` 점수에 **비례**하는 소프트맥스 가중치를
+사용한다:
+
+```
+weight[i] = score[i] / sum(score[j] for all j)
+```
+
+점수가 높은 모델이 앙상블에서 더 큰 영향을 미친다.
+
+### 스코어링 시 동작
+
+`EnsembleModel` 은 모든 서브모델 인스턴스를 내부에 보관한다. `best.joblib` 에
+저장될 때 cloudpickle 이 전체 객체 그래프(서브모델 포함)를 직렬화하므로,
+`Scorer.from_artifact("best.joblib")` 한 번 호출로 앙상블 스코어링이 완전히 동작한다 —
+개별 서브 artifact 가 함께 있지 않아도 된다.
+
+### SHAP
+
+서브모델별 raw-margin SHAP 값의 가중 평균을 반환한다. 반환 shape 는 개별 모델과
+동일하게 `(n, n_features + 1)` 을 유지해 `auto-ml-explain` 과 완전히 호환된다.
+
+## ElasticNet 모델
+
+sklearn `LogisticRegression(solver='saga')` 기반 L1+L2 혼합 규제 선형 모델.
+부스팅 트리가 놓치는 단순 선형 신호를 포착하거나, 해석 가능한 계수(coefficient)
+가 필요한 도메인에서 유용하다. 기본값은 `enabled: false` (opt-in).
+
+```yaml
+models:
+  elasticnet:
+    enabled: true
+    fixed_params:
+      max_iter: 2000
+    search_space:
+      C:        { type: float, low: 1.0e-3, high: 10.0, log: true }
+      l1_ratio: { type: float, low: 0.0,   high: 1.0 }
+```
+
+- **`C`** — 역규제 강도. 낮을수록 규제 강함 (더 sparse 계수).
+- **`l1_ratio`** — L1/L2 혼합 비율. 0.0 = 순수 L2 (Ridge), 1.0 = 순수 L1 (Lasso).
+- **범주형 처리** — 내부 `OneHotEncoder` 로 자동 처리. `handle_unknown="ignore"` 로
+  스코어링 시 미학습 범주를 0-벡터로 안전하게 처리한다.
+- **SHAP** — `shap.LinearExplainer` 를 사용한다. OHE 확장된 SHAP 값을 원본 피처
+  공간으로 합산해 반환하므로 `auto-ml-explain` 과 완전히 호환된다.
+- **Focal Loss** — 미지원. `loss: logloss` (기본값) 만 사용 가능.
+- **`early_stopping_rounds`** — 무시된다 (sklearn 에는 해당 개념이 없음).
 
 ## 손실 함수 (Focal Loss)
 
@@ -330,6 +399,7 @@ models:
 ### 동작 / 호환성 메모
 
 - `loss` 는 **모델별로 독립**. 한 모델만 focal 로 두고 나머지는 logloss 로 둘 수 있다.
+- `ElasticNetModel` 과 `EnsembleModel` 은 Focal Loss 를 지원하지 않는다. 이 두 모델에는 `loss: logloss` (기본값) 만 지정해야 한다.
 - `focal_gamma` / `focal_alpha` 는 `fixed_params` 에 두거나 `search_space` 로 탐색 가능
   (예약 키 — 라이브러리 원본 파라미터에는 전달되지 않고 wrapper 가 pop).
 - 내부 동작: wrapper 가 `objective` / `loss_function` 를 numpy 기반 callable (또는
@@ -454,8 +524,11 @@ models:
 ## SHAP 해석 (auto-ml-explain)
 
 학습된 모형이 각 입력 행을 왜 그렇게 예측했는지 **건별·변수별 기여도** 를 산출한다.
-세 모델 (LGBM/XGB/CatBoost) 의 native API (`pred_contrib` / `ShapValues`) 를 그대로
-사용하므로 별도 `shap` 패키지 의존성 없음.
+LGBM/XGB/CatBoost 는 native API (`pred_contrib` / `ShapValues`) 를 사용하고,
+`ElasticNetModel` 은 `shap.LinearExplainer` 를 사용한다. `EnsembleModel` 은
+서브모델 SHAP 의 가중 평균을 반환한다.
+모든 모델의 `shap_values()` 는 `(n, n_features + 1)` 형태로 반환 — Explainer 와
+완전 호환.
 
 ```bash
 # 학습 후 같은 config 로 호출
@@ -537,18 +610,23 @@ auto-ml-explain --config configs/example.yaml
 
 ## 모형 후보 관리 (Best 변경)
 
-학습 시 모든 모형(LGBM/XGB/CatBoost)이 별도 sub-artifact 로 함께 저장된다:
+학습 시 모든 모형이 별도 sub-artifact 로 함께 저장된다:
 
 ```
-artifact_dir/best.joblib              ← 운영용 (scoring/explain 대상)
-artifact_dir/models/lgbm.joblib       ← 후보 1
-artifact_dir/models/xgb.joblib        ← 후보 2
-artifact_dir/models/catboost.joblib   ← 후보 3
+artifact_dir/best.joblib                  ← 운영용 (scoring/explain 대상)
+artifact_dir/models/lgbm.joblib           ← 후보 1
+artifact_dir/models/xgb.joblib            ← 후보 2
+artifact_dir/models/catboost.joblib       ← 후보 3
+artifact_dir/models/elasticnet.joblib     ← 후보 4 (enabled: true 일 때)
+artifact_dir/models/ensemble.joblib       ← 앙상블 후보 (enabled: true 일 때)
 ```
 
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본이다. 기본은
-`training.primary_metric` 기준 holdout 점수 최고 모형. 각 sub-artifact 는 독립
-번들이라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+`training.primary_metric` 기준 holdout 점수 최고 모형(앙상블 포함). 각 sub-artifact 는
+독립 번들이라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+
+`ensemble.joblib` 은 모든 서브모델을 내부에 포함하므로, 이 파일 하나만으로
+앙상블 스코어링이 완전히 동작한다.
 
 ### 학습 시점에 best 강제 지정
 
@@ -556,6 +634,7 @@ artifact_dir/models/catboost.joblib   ← 후보 3
 training:
   primary_metric: roc_auc
   best_model: lgbm        # null/생략 시 자동 선정. 지정 시 그 모형을 best 로.
+                          # 가능한 값: lgbm | xgb | catboost | elasticnet | ensemble
 ```
 
 알 수 없는 모형 이름이면 학습이 명시적 `ValueError` 로 실패한다.
@@ -566,6 +645,9 @@ training:
 auto-ml-set-best --config configs/example.yaml --model xgb
 # artifact_dir/models/xgb.joblib → artifact_dir/best.joblib 로 복사.
 # scoring / explain 이 즉시 새 모형 사용.
+
+# 앙상블을 best 로 승격:
+auto-ml-set-best --config configs/example.yaml --model ensemble
 ```
 
 승격된 best 의 metadata.extra 에는 `promoted_at` / `promoted_from`(이전 best 모형명) 이
@@ -580,6 +662,8 @@ reporting.output_dir/sub/lgbm/report.html
 reporting.output_dir/sub/lgbm/report.pdf
 reporting.output_dir/sub/lgbm/feature_importance.csv
 reporting.output_dir/sub/xgb/...
+reporting.output_dir/sub/elasticnet/...
+reporting.output_dir/sub/ensemble/...
 ```
 
 각 sub-report 는 점수 표(현 모형 vs best), feature importance, decile/confusion/

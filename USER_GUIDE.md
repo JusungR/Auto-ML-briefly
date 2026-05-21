@@ -22,6 +22,9 @@
 12. [폐쇄망(인터넷이 안 되는 환경) 이관](#12-폐쇄망인터넷이-안-되는-환경-이관)
 13. [용어 사전](#13-용어-사전)
 
+> **v2 업데이트 (ElasticNet + Ensemble)**: ElasticNet 모델 추가 및 가중 평균 앙상블 기능이 추가되었습니다.
+> 관련 설정은 [7-3-e. ElasticNet 설정](#7-3-e-elasticnet-설정) 과 [7-3-f. 앙상블 설정](#7-3-f-앙상블-설정) 을 참고하세요.
+
 ---
 
 ## 1. 이 라이브러리는 무엇인가요?
@@ -40,9 +43,10 @@
 정의 CSV 한 개**만 작성하면, 라이브러리가 알아서:
 
 - 결측치를 채우고, 이상치를 자르고, 스케일을 맞추고
-- LightGBM / XGBoost / CatBoost 세 가지 모델을 동시에 학습하고
+- LightGBM / XGBoost / CatBoost / ElasticNet 네 가지 모델을 동시에 학습하고
+- 학습된 모델들을 **가중 평균 앙상블**로 자동 결합하고
 - Optuna 로 하이퍼파라미터를 자동 튜닝하고
-- 가장 성능이 좋은 모델을 골라서
+- 가장 성능이 좋은 모델(앙상블 포함)을 골라서
 - HTML / PDF 리포트까지 만들어 줍니다.
 
 학습이 끝난 뒤에는 **`auto-ml-score` 명령** 한 번으로 새 데이터에 점수를
@@ -340,7 +344,7 @@ artifact 에 저장되어 스코어링 시 동일 변환이 적용됩니다.
 
 #### 7-3-a. 무엇이 일어나나
 
-`auto-ml-train` 한 번 호출하면 활성화된 모델(기본: LGBM + XGB + CatBoost) 각각에
+`auto-ml-train` 한 번 호출하면 활성화된 개별 모델(기본: LGBM + XGB + CatBoost + ElasticNet) 각각에
 대해 다음이 순서대로 일어납니다.
 
 1. **하이퍼파라미터 튜닝** (`tuning.enabled: true` 이고 `search_space` 가 있을 때) —
@@ -352,8 +356,10 @@ artifact 에 저장되어 스코어링 시 동일 변환이 적용됩니다.
    데이터 전체로 다시 fit.
 4. **테스트 데이터로 평가** — `primary_metric` 점수 산출.
 
-이 과정을 모델 3개에 모두 적용한 뒤, **테스트 데이터 점수가 가장 좋은 모델
-1개**가 best 로 선정되어 artifact 에 저장됩니다.
+이 과정을 활성화된 모든 모델에 적용한 뒤, `ensemble.enabled: true` 이면 각 모델의
+테스트 점수에 비례하는 가중 평균 **앙상블 모델을 자동으로 추가 생성**합니다.
+최종적으로 **테스트 데이터 점수가 가장 좋은 모델 1개(앙상블 포함)**가 best 로
+선정되어 artifact 에 저장됩니다.
 
 #### 7-3-b. 학습 옵션 (`training`)
 
@@ -432,17 +438,69 @@ models:
 
 #### 7-3-e. 모델별 메모
 
-| 모델 | 범주형 처리 | early_stopping 적용 방식 | 비고 |
+| 모델 | 범주형 처리 | early_stopping | 비고 |
 |---|---|---|---|
-| **LightGBM** (`lgbm`) | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | 가장 빠름 |
-| **XGBoost** (`xgb`) | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
-| **CatBoost** (`catboost`) | native (`cat_features` 인덱스) | 학습 인자 `early_stopping_rounds` | `allow_writing_files: false` 권장 — 운영 중 임시 파일 차단 |
+| **LightGBM** (`lgbm`) | pandas `category` dtype native | callbacks | 가장 빠름 |
+| **XGBoost** (`xgb`) | 컬럼별 `LabelEncoder` (학습 시 fit → 스코어링 재사용) | 생성자 인자 | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder |
+| **CatBoost** (`catboost`) | native (`cat_features` 인덱스) | 학습 인자 | `allow_writing_files: false` 권장 |
+| **ElasticNet** (`elasticnet`) | 내부 `OneHotEncoder` (학습 시 fit → 스코어링 재사용) | 해당 없음 | sklearn SAGA 기반 선형 모델. 기본 비활성 |
+| **Ensemble** (`ensemble`) | 서브모델에 위임 | 해당 없음 | 자동 생성, 별도 설정 불필요 |
 
-이 세 모델은 모두 동일한 전처리 결과 (그리고 변수 선택을 켰다면 동일한 채택
-컬럼 셋) 를 공유합니다. 범주형 인코딩만 모델 래퍼 안에서 모델별로 자체
-처리됩니다.
+모든 모델은 동일한 전처리 결과와 (변수 선택을 켰다면) 동일한 채택 컬럼 셋을
+공유합니다. 범주형 인코딩은 각 모델 래퍼 안에서 자체 처리됩니다.
 
-#### 7-3-f. 처음에는 어떻게 설정하면 좋나요?
+#### 7-3-f. ElasticNet 설정
+
+ElasticNet 은 sklearn 의 L1+L2 혼합 규제 선형 모델(`solver='saga'`) 을 사용합니다.
+부스팅 트리가 놓치는 **단순 선형 신호 포착**, 또는 **계수(coefficient) 로 직접
+변수 기여도를 설명**하고 싶을 때 유용합니다. 기본값은 `enabled: false` (선택 사항).
+
+```yaml
+models:
+  elasticnet:
+    enabled: true                    # 기본 false — 필요할 때 true 로 켜세요
+    fixed_params:
+      max_iter: 2000                 # 수렴이 안 되면 늘려볼 것
+    search_space:
+      C:        { type: float, low: 1.0e-3, high: 10.0, log: true }
+      l1_ratio: { type: float, low: 0.0,   high: 1.0 }
+```
+
+- **`C`** — 역규제 강도. 낮을수록 규제 강함(더 sparse). 0.001 → 매우 강한 규제.
+- **`l1_ratio`** — L1/L2 비율. 0 = 순수 Ridge (L2), 1 = 순수 Lasso (L1).
+  중간값(0.5 등)이 두 방식의 장점을 결합합니다.
+
+> ⚠️ **Focal Loss 미지원**: ElasticNet 에는 `loss: focal` 을 지정하지 마세요
+> (기본값 `loss: logloss` 로 두면 됩니다).
+
+#### 7-3-g. 앙상블 설정
+
+앙상블은 **활성화된 모든 개별 모델**의 예측을 가중 평균으로 결합합니다.
+가중치는 각 모델의 테스트 `primary_metric` 점수에 비례하므로 별도 튜닝 없이
+자동으로 결정됩니다.
+
+```yaml
+ensemble:
+  enabled: true               # 기본 true — 활성화된 모델이 2개 이상이어야 동작
+  strategy: weighted_average  # 현재 지원: weighted_average
+```
+
+**언제 끄나요?**
+- 개별 모델 결과를 정확히 재현해야 할 때
+- 학습 시간을 최소화해야 할 때 (`enabled: false` 로 앙상블 생성 비용 제거)
+- 앙상블이 오히려 단일 최고 모델보다 점수가 낮을 때 (`best_model` 로 단일 모델 지정)
+
+**앙상블 artifact 사용 방법:**
+
+앙상블이 best 모델로 선정되면 `best.joblib` 이 곧 앙상블입니다. 별도로 앙상블만
+사용하고 싶으면:
+
+```bash
+auto-ml-set-best --config configs/my_config.yaml --model ensemble
+auto-ml-score --config configs/my_config.yaml
+```
+
+#### 7-3-h. 처음에는 어떻게 설정하면 좋나요?
 
 빠른 1차 검증용:
 
