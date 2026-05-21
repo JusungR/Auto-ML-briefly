@@ -221,6 +221,16 @@ models:
         low: 0.0
         high: 1.0
 
+# ==== 앙상블 ====================================================
+# strategy: elasticnet_plus_best — elasticnet + 나머지 best 모델 2개 결합 (기본)
+#           weighted_average      — 활성화된 전체 모델의 점수 비례 가중 평균
+# elasticnet_weight: null 이면 점수 비례 자동 계산 (elasticnet_plus_best 에서만 사용)
+#                   0~1 사이 값으로 직접 지정 가능 (예: 0.35 → elasticnet 35%, best 65%)
+ensemble:
+  enabled: true
+  strategy: elasticnet_plus_best
+  elasticnet_weight: null           # null → 점수 비례 자동, 예: 0.35 로 직접 지정
+
 # ==== 리포트 ====================================================
 reporting:
   output_dir: ./artifacts/reports

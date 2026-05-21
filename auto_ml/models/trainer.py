@@ -20,6 +20,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from auto_ml.config import AutoMLConfig
 from auto_ml.models.base import BaseModel
+from auto_ml.models.ensemble_model import EnsembleModel
 from auto_ml.models.registry import build_model
 from auto_ml.reporting.metrics import compute_metrics
 from auto_ml.tuning import HyperparameterOptimizer, TuningResult
@@ -101,8 +102,56 @@ class Trainer:
                 y_test=y_test,
             )
 
-        # best 선정 — 사용자 override 가 있으면 그 모형, 아니면 primary_metric 최대값.
+        # 앙상블 — 개별 모델 학습 완료 후 앙상블을 results 에 추가한다.
         primary = self.config.training.primary_metric
+        ens_cfg = self.config.ensemble
+        if ens_cfg.enabled and len(results) >= 2:
+            strategy = ens_cfg.strategy
+            try:
+                if strategy == "elasticnet_plus_best":
+                    ensemble_model = EnsembleModel.from_elasticnet_plus_best(
+                        results, primary, ens_cfg.elasticnet_weight
+                    )
+                else:
+                    ensemble_model = EnsembleModel.from_results(results, primary)
+            except ValueError as exc:
+                logger.warning("Ensemble skipped — %s", exc)
+                ensemble_model = None
+
+            if ensemble_model is not None:
+                weights = ensemble_model.weights
+                # OOF: 앙상블에 포함된 서브모델 결과만 사용
+                ensemble_oof = sum(
+                    results[n].oof_proba * weights[n]
+                    for n in weights
+                )
+                ensemble_test = ensemble_model.predict_proba(X_test)
+                ensemble_train = ensemble_model.predict_proba(X_train)
+                results["ensemble"] = ModelResult(
+                    name="ensemble",
+                    model=ensemble_model,
+                    params={"weights": weights},
+                    oof_proba=ensemble_oof,
+                    test_proba=ensemble_test,
+                    train_proba=ensemble_train,
+                    cv_metrics=compute_metrics(y_train.to_numpy(), ensemble_oof),
+                    test_metrics=compute_metrics(y_test.to_numpy(), ensemble_test),
+                    train_metrics=compute_metrics(y_train.to_numpy(), ensemble_train),
+                    feature_importance=ensemble_model.feature_importance(),
+                    fold_best_iterations=[],
+                    tuning=None,
+                )
+                logger.info(
+                    "Ensemble built (strategy=%s, weights=%s)",
+                    strategy,
+                    {n: f"{w:.3f}" for n, w in weights.items()},
+                )
+        elif ens_cfg.enabled:
+            logger.warning(
+                "Ensemble skipped — need at least 2 enabled models, got %d.", len(results)
+            )
+
+        # best 선정 — 사용자 override 가 있으면 그 모형, 아니면 primary_metric 최대값.
         override = self.config.training.best_model
         if override is not None:
             if override not in results:

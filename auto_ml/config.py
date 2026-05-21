@@ -325,6 +325,27 @@ class ReportingConfig:
 
 
 @dataclass
+class EnsembleConfig:
+    """앙상블 옵션.
+
+    Attributes:
+        enabled: True 면 개별 모델 학습 완료 후 앙상블을 추가로 생성한다.
+        strategy: 앙상블 구성 방식.
+                  ``"elasticnet_plus_best"``: elasticnet 을 무조건 포함하고,
+                  나머지 활성 모델 중 test primary_metric 이 가장 높은 1개를 결합.
+                  ``"weighted_average"``: 활성화된 전체 모델의 점수 비례 가중 평균.
+        elasticnet_weight: ``strategy="elasticnet_plus_best"`` 일 때
+                           elasticnet 에 부여할 가중치 (0 < w < 1).
+                           ``null`` 이면 test primary_metric 점수 비례로 자동 계산.
+                           나머지 (1 - elasticnet_weight) 는 best 모델 몫이 된다.
+    """
+
+    enabled: bool = True
+    strategy: str = "elasticnet_plus_best"
+    elasticnet_weight: float | None = None
+
+
+@dataclass
 class ScoringConfig:
     """주기적 배치 스코어링 옵션.
 
@@ -428,8 +449,10 @@ class AutoMLConfig:
             "lgbm": ModelConfig(),
             "xgb": ModelConfig(),
             "catboost": ModelConfig(),
+            "elasticnet": ModelConfig(enabled=False),
         }
     )
+    ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     explain: ExplainConfig = field(default_factory=ExplainConfig)
@@ -464,6 +487,8 @@ class AutoMLConfig:
             data["explain"] = ExplainConfig(**data["explain"])
         if "logging" in data:
             data["logging"] = LoggingConfig(**data["logging"])
+        if "ensemble" in data:
+            data["ensemble"] = EnsembleConfig(**data["ensemble"])
         if "models" in data:
             data["models"] = {
                 name: ModelConfig(**cfg) for name, cfg in data["models"].items()

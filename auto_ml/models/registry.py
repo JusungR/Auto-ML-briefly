@@ -10,14 +10,17 @@ from typing import Any
 
 from auto_ml.models.base import BaseModel
 from auto_ml.models.catboost_model import CatBoostModel
+from auto_ml.models.elasticnet_model import ElasticNetModel
 from auto_ml.models.lgbm_model import LGBMModel
 from auto_ml.models.xgb_model import XGBModel
 
 # 등록된 모델 이름 → 클래스
+# EnsembleModel 은 여기에 등록하지 않는다 — 이름+파라미터만으로 생성 불가.
 _REGISTRY: dict[str, type[BaseModel]] = {
     "lgbm": LGBMModel,
     "xgb": XGBModel,
     "catboost": CatBoostModel,
+    "elasticnet": ElasticNetModel,
 }
 
 

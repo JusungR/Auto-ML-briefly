@@ -116,6 +116,23 @@ models:
       random_strength:     { type: float, low: 0.0, high: 10.0 }
       bagging_temperature: { type: float, low: 0.0, high: 1.0 }
 
+  elasticnet:
+    enabled: true
+    fixed_params:
+      max_iter: 1000
+    search_space:
+      C:        { type: float, low: 1.0e-3, high: 10.0, log: true }
+      l1_ratio: { type: float, low: 0.0,   high: 1.0 }
+
+# ==== 앙상블 ====================================================
+# elasticnet 을 무조건 포함하고, 나머지 모델 중 best 1개와 결합한다.
+# elasticnet_weight: null 이면 점수 비례 자동 계산
+#                   0~1 사이 값으로 직접 지정 가능 (예: 0.35)
+ensemble:
+  enabled: true
+  strategy: elasticnet_plus_best
+  elasticnet_weight: null
+
 # ==== 리포트 (PDF 까지 생성) ====================================
 reporting:
   output_dir: ./artifacts/credit/reports
