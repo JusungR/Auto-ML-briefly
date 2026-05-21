@@ -329,15 +329,20 @@ class EnsembleConfig:
     """앙상블 옵션.
 
     Attributes:
-        enabled: True 면 개별 모델 학습 완료 후 가중 평균 앙상블을 추가로 생성한다.
-                 활성화된 모델이 1개 이하면 자동으로 건너뛴다.
-        strategy: 가중치 산출 방식.
-                  ``"weighted_average"``: test primary_metric 에 비례.
-                  현재는 이 값만 지원하며, 미래 확장을 위해 필드로 노출한다.
+        enabled: True 면 개별 모델 학습 완료 후 앙상블을 추가로 생성한다.
+        strategy: 앙상블 구성 방식.
+                  ``"elasticnet_plus_best"``: elasticnet 을 무조건 포함하고,
+                  나머지 활성 모델 중 test primary_metric 이 가장 높은 1개를 결합.
+                  ``"weighted_average"``: 활성화된 전체 모델의 점수 비례 가중 평균.
+        elasticnet_weight: ``strategy="elasticnet_plus_best"`` 일 때
+                           elasticnet 에 부여할 가중치 (0 < w < 1).
+                           ``null`` 이면 test primary_metric 점수 비례로 자동 계산.
+                           나머지 (1 - elasticnet_weight) 는 best 모델 몫이 된다.
     """
 
     enabled: bool = True
-    strategy: str = "weighted_average"
+    strategy: str = "elasticnet_plus_best"
+    elasticnet_weight: float | None = None
 
 
 @dataclass

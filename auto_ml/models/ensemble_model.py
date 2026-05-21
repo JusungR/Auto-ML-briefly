@@ -49,10 +49,7 @@ class EnsembleModel(BaseModel):
         results: dict[str, "ModelResult"],
         primary_metric: str,
     ) -> "EnsembleModel":
-        """ModelResult dict 로부터 앙상블을 생성한다.
-
-        가중치는 각 모델의 test_metrics[primary_metric] 에 비례한다.
-        """
+        """전체 모델의 점수 비례 가중 평균 앙상블."""
         scores = {name: mr.test_metrics[primary_metric] for name, mr in results.items()}
         total = sum(scores.values())
         if total > 0:
@@ -60,6 +57,53 @@ class EnsembleModel(BaseModel):
         else:
             weights = {name: 1.0 / len(scores) for name in scores}
         base_models = {name: mr.model for name, mr in results.items()}
+        return cls(base_models=base_models, weights=weights)
+
+    @classmethod
+    def from_elasticnet_plus_best(
+        cls,
+        results: dict[str, "ModelResult"],
+        primary_metric: str,
+        elasticnet_weight: float | None = None,
+    ) -> "EnsembleModel":
+        """elasticnet + 나머지 best 모델 2개 앙상블.
+
+        elasticnet 은 무조건 포함하고, 나머지 활성 모델 중
+        test primary_metric 이 가장 높은 1개를 결합한다.
+
+        Args:
+            elasticnet_weight: elasticnet 의 가중치 (0 < w < 1).
+                               None 이면 점수 비례로 자동 계산.
+        """
+        if "elasticnet" not in results:
+            raise ValueError(
+                "strategy='elasticnet_plus_best' 를 사용하려면 elasticnet 모델이 "
+                "활성화되어 있어야 합니다."
+            )
+        others = {n: mr for n, mr in results.items() if n != "elasticnet"}
+        if not others:
+            raise ValueError(
+                "elasticnet 외에 최소 1개의 활성 모델이 필요합니다."
+            )
+        best_name = max(others, key=lambda n: others[n].test_metrics[primary_metric])
+
+        en_score = results["elasticnet"].test_metrics[primary_metric]
+        best_score = others[best_name].test_metrics[primary_metric]
+
+        if elasticnet_weight is not None:
+            w_en = float(elasticnet_weight)
+            if not (0.0 < w_en < 1.0):
+                raise ValueError(f"elasticnet_weight 는 (0, 1) 범위여야 합니다. 입력값: {w_en}")
+        else:
+            total = en_score + best_score
+            w_en = en_score / total if total > 0 else 0.5
+        w_best = 1.0 - w_en
+
+        base_models = {
+            "elasticnet": results["elasticnet"].model,
+            best_name: others[best_name].model,
+        }
+        weights = {"elasticnet": w_en, best_name: w_best}
         return cls(base_models=base_models, weights=weights)
 
     # ------------------------------------------------------------------

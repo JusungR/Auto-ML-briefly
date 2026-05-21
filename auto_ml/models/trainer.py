@@ -102,33 +102,51 @@ class Trainer:
                 y_test=y_test,
             )
 
-        # 앙상블 — 개별 모델 학습 완료 후 가중 평균 앙상블을 results 에 추가한다.
+        # 앙상블 — 개별 모델 학습 완료 후 앙상블을 results 에 추가한다.
         primary = self.config.training.primary_metric
-        if self.config.ensemble.enabled and len(results) >= 2:
-            ensemble_model = EnsembleModel.from_results(results, primary)
-            weights = ensemble_model.weights
-            ensemble_oof = sum(results[n].oof_proba * weights[n] for n in results)
-            ensemble_test = ensemble_model.predict_proba(X_test)
-            ensemble_train = ensemble_model.predict_proba(X_train)
-            results["ensemble"] = ModelResult(
-                name="ensemble",
-                model=ensemble_model,
-                params={"weights": weights},
-                oof_proba=ensemble_oof,
-                test_proba=ensemble_test,
-                train_proba=ensemble_train,
-                cv_metrics=compute_metrics(y_train.to_numpy(), ensemble_oof),
-                test_metrics=compute_metrics(y_test.to_numpy(), ensemble_test),
-                train_metrics=compute_metrics(y_train.to_numpy(), ensemble_train),
-                feature_importance=ensemble_model.feature_importance(),
-                fold_best_iterations=[],
-                tuning=None,
-            )
-            logger.info(
-                "Ensemble built (strategy=weighted_average, weights=%s)",
-                {n: f"{w:.3f}" for n, w in weights.items()},
-            )
-        elif self.config.ensemble.enabled:
+        ens_cfg = self.config.ensemble
+        if ens_cfg.enabled and len(results) >= 2:
+            strategy = ens_cfg.strategy
+            try:
+                if strategy == "elasticnet_plus_best":
+                    ensemble_model = EnsembleModel.from_elasticnet_plus_best(
+                        results, primary, ens_cfg.elasticnet_weight
+                    )
+                else:
+                    ensemble_model = EnsembleModel.from_results(results, primary)
+            except ValueError as exc:
+                logger.warning("Ensemble skipped — %s", exc)
+                ensemble_model = None
+
+            if ensemble_model is not None:
+                weights = ensemble_model.weights
+                # OOF: 앙상블에 포함된 서브모델 결과만 사용
+                ensemble_oof = sum(
+                    results[n].oof_proba * weights[n]
+                    for n in weights
+                )
+                ensemble_test = ensemble_model.predict_proba(X_test)
+                ensemble_train = ensemble_model.predict_proba(X_train)
+                results["ensemble"] = ModelResult(
+                    name="ensemble",
+                    model=ensemble_model,
+                    params={"weights": weights},
+                    oof_proba=ensemble_oof,
+                    test_proba=ensemble_test,
+                    train_proba=ensemble_train,
+                    cv_metrics=compute_metrics(y_train.to_numpy(), ensemble_oof),
+                    test_metrics=compute_metrics(y_test.to_numpy(), ensemble_test),
+                    train_metrics=compute_metrics(y_train.to_numpy(), ensemble_train),
+                    feature_importance=ensemble_model.feature_importance(),
+                    fold_best_iterations=[],
+                    tuning=None,
+                )
+                logger.info(
+                    "Ensemble built (strategy=%s, weights=%s)",
+                    strategy,
+                    {n: f"{w:.3f}" for n, w in weights.items()},
+                )
+        elif ens_cfg.enabled:
             logger.warning(
                 "Ensemble skipped — need at least 2 enabled models, got %d.", len(results)
             )
