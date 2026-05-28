@@ -446,9 +446,41 @@
   </table>
 </div>
 
-<!-- ═══ 7. 변수 선택 (optional) ═══ -->
+<!-- ═══ 7. 모델 파라미터 ═══ -->
+<h2><span class="sec-num">7</span> 모델 파라미터</h2>
+{% for row in tuning_rows %}
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-body" style="padding:10px 14px 8px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <strong style="font-size:13px;">{{ row.name }}</strong>
+    {% if row.name == best_model %}<span class="badge badge-blue">BEST</span>{% endif %}
+    {% if row.tuned %}
+      <span class="pill" style="background:#d1fae5; color:#065f46; border-color:#6ee7b7;">튜닝 완료 · {{ row.n_trials }}회</span>
+      {% if row.best_value is not none %}
+      <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">best OOF {{ '%.4f'|format(row.best_value) }}</span>
+      {% endif %}
+    {% else %}
+      <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">튜닝 미수행</span>
+    {% endif %}
+  </div>
+  <table>
+    <thead>
+      <tr><th class="left">파라미터</th><th class="left">값</th></tr>
+    </thead>
+    <tbody>
+    {% for k, v in row.params.items() %}
+      <tr>
+        <td class="left config-key">{{ k }}</td>
+        <td class="left config-val">{{ v }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+<!-- ═══ 8. 변수 선택 (optional) ═══ -->
 {% if selection %}
-<h2><span class="sec-num">7</span> 변수 선택 (Stability Selection)</h2>
+<h2><span class="sec-num">8</span> 변수 선택 (Stability Selection)</h2>
 <div class="header-pills" style="margin-bottom:12px;">
   <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
     base: <strong>{{ selection.base_estimator }}</strong>
