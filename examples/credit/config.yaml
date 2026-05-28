@@ -68,6 +68,7 @@ models:
       metric: auc
       verbose: -1
       n_estimators: 800
+      max_depth: -1
     search_space:
       learning_rate: { type: float, low: 0.01, high: 0.3, log: true }
       num_leaves:    { type: int,   low: 15,   high: 127 }
