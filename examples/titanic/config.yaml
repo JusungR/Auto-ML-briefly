@@ -73,6 +73,7 @@ models:
     search_space:
       learning_rate: { type: float, low: 0.01, high: 0.3, log: true }
       num_leaves:    { type: int,   low: 7,    high: 63 }
+      max_depth:     { type: int,   low: 3,    high: 8 }
       min_data_in_leaf: { type: int, low: 5,   high: 50 }
       feature_fraction: { type: float, low: 0.6, high: 1.0 }
       bagging_fraction: { type: float, low: 0.6, high: 1.0 }
