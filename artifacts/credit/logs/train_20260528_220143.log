@@ -1,0 +1,79 @@
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Log file: artifacts/credit/logs/train_20260528_220143.log
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Auto-ML training pipeline started
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Loading train data: ./examples/credit/data/train.parquet
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Train: 24,000 rows × 25 cols | target 'default': 5,309/24,000 positive (22.12%) | missing 0.00%
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Loading test data:  ./examples/credit/data/test.parquet
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Test:  6,000 rows × 25 cols | target 'default': 1,327/6,000 positive (22.12%) | missing 0.00%
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Features — total=23, numeric=20, categorical=3
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Sizes — train=24000, test=6000
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Step 1/4: preprocessing (null -> outlier -> scaling)
+2026-05-28 22:01:43 | INFO    | auto_ml.pipeline | Step 2/4: stability selection (base=lasso, n_subsamples=80, threshold=0.60)
+2026-05-28 22:01:57 | INFO    | auto_ml.pipeline | Stability selection kept 19 / 23 features
+2026-05-28 22:01:57 | INFO    | auto_ml.pipeline | Step 3/4: model training (3 algorithms)
+2026-05-28 22:01:57 | INFO    | auto_ml.trainer | === Training pipeline: lgbm ===
+2026-05-28 22:01:57 | INFO    | auto_ml.tuning | Tuning lgbm — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-28 22:02:17 | INFO    | auto_ml.tuning | Tuning lgbm done — best roc_auc=0.7849, params={'learning_rate': 0.021471858797027, 'num_leaves': 85, 'min_data_in_leaf': 55, 'feature_fraction': 0.7779717392187493, 'bagging_fraction': 0.6052561262871233, 'reg_alpha': 0.07115953064092197, 'reg_lambda': 7.860792250906604, 'min_gain_to_split': 0.1471710061864095}
+2026-05-28 22:02:18 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=199)
+2026-05-28 22:02:19 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=106)
+2026-05-28 22:02:19 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=138)
+2026-05-28 22:02:20 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=174)
+2026-05-28 22:02:21 | INFO    | auto_ml.trainer | === Training pipeline: xgb ===
+2026-05-28 22:02:21 | INFO    | auto_ml.tuning | Tuning xgb — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-28 22:03:04 | INFO    | auto_ml.tuning | Tuning xgb done — best roc_auc=0.7855, params={'learning_rate': 0.026000059117302653, 'max_depth': 7, 'subsample': 0.6563696899899051, 'colsample_bytree': 0.9208787923016158, 'min_child_weight': 1.6709557931179373, 'reg_alpha': 7.620481786158549, 'reg_lambda': 0.08916674715636537, 'gamma': 0.993578407670862}
+2026-05-28 22:03:05 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=128)
+2026-05-28 22:03:06 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=157)
+2026-05-28 22:03:07 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=281)
+2026-05-28 22:03:08 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=136)
+2026-05-28 22:03:10 | INFO    | auto_ml.trainer | === Training pipeline: catboost ===
+2026-05-28 22:03:10 | INFO    | auto_ml.tuning | Tuning catboost — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-28 22:04:10 | INFO    | auto_ml.tuning | Tuning catboost done — best roc_auc=0.7847, params={'learning_rate': 0.03220579752389847, 'depth': 6, 'l2_leaf_reg': 4.60313968685407, 'random_strength': 0.723236835259315, 'bagging_temperature': 0.6449759616213921}
+2026-05-28 22:04:11 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=370)
+2026-05-28 22:04:12 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=175)
+2026-05-28 22:04:14 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=390)
+2026-05-28 22:04:15 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=285)
+2026-05-28 22:04:16 | INFO    | auto_ml.trainer | === Training pipeline: elasticnet ===
+2026-05-28 22:04:16 | INFO    | auto_ml.tuning | Tuning elasticnet — n_trials=15, cv_folds=3, metric=roc_auc
+2026-05-28 22:04:21 | INFO    | auto_ml.tuning | Tuning elasticnet done — best roc_auc=0.7461, params={'C': 7.553503645583172, 'l1_ratio': 0.005297120813991926}
+2026-05-28 22:04:21 | INFO    | auto_ml.trainer |   fold 1/4 done (best_iter=None)
+2026-05-28 22:04:21 | INFO    | auto_ml.trainer |   fold 2/4 done (best_iter=None)
+2026-05-28 22:04:21 | INFO    | auto_ml.trainer |   fold 3/4 done (best_iter=None)
+2026-05-28 22:04:21 | INFO    | auto_ml.trainer |   fold 4/4 done (best_iter=None)
+2026-05-28 22:04:21 | INFO    | auto_ml.trainer | Ensemble built (strategy=elasticnet_plus_best, weights={'elasticnet': '0.484', 'catboost': '0.516'})
+2026-05-28 22:04:21 | INFO    | auto_ml.trainer | Best model: catboost (auto-selected by roc_auc=0.7796)
+2026-05-28 22:04:21 | INFO    | auto_ml.pipeline | Step 4/4: report generation
+2026-05-28 22:04:22 | INFO    | auto_ml.report | HTML report written: artifacts/credit/reports/report.html
+2026-05-28 22:04:26 | INFO    | auto_ml.report | PDF report written: artifacts/credit/reports/report.pdf
+2026-05-28 22:04:26 | INFO    | auto_ml.report | Feature importance CSV written: artifacts/credit/reports/feature_importance.csv (rows=19)
+2026-05-28 22:04:26 | INFO    | auto_ml.report | Feature selection CSV written: artifacts/credit/reports/feature_selection.csv (rows=23)
+2026-05-28 22:04:26 | INFO    | auto_ml.report | Sub-report HTML written: artifacts/credit/reports/sub/lgbm/report.html
+2026-05-28 22:04:29 | INFO    | auto_ml.report | Sub-report PDF written: artifacts/credit/reports/sub/lgbm/report.pdf
+2026-05-28 22:04:29 | INFO    | auto_ml.report | Sub-report importance CSV: artifacts/credit/reports/sub/lgbm/feature_importance.csv (rows=19)
+2026-05-28 22:04:29 | INFO    | auto_ml.report | Sub-report HTML written: artifacts/credit/reports/sub/xgb/report.html
+2026-05-28 22:04:32 | INFO    | auto_ml.report | Sub-report PDF written: artifacts/credit/reports/sub/xgb/report.pdf
+2026-05-28 22:04:32 | INFO    | auto_ml.report | Sub-report importance CSV: artifacts/credit/reports/sub/xgb/feature_importance.csv (rows=19)
+2026-05-28 22:04:32 | INFO    | auto_ml.report | Sub-report HTML written: artifacts/credit/reports/sub/elasticnet/report.html
+2026-05-28 22:04:35 | INFO    | auto_ml.report | Sub-report PDF written: artifacts/credit/reports/sub/elasticnet/report.pdf
+2026-05-28 22:04:35 | INFO    | auto_ml.report | Sub-report importance CSV: artifacts/credit/reports/sub/elasticnet/feature_importance.csv (rows=19)
+2026-05-28 22:04:35 | INFO    | auto_ml.report | Sub-report HTML written: artifacts/credit/reports/sub/ensemble/report.html
+2026-05-28 22:04:38 | INFO    | auto_ml.report | Sub-report PDF written: artifacts/credit/reports/sub/ensemble/report.pdf
+2026-05-28 22:04:38 | INFO    | auto_ml.report | Sub-report importance CSV: artifacts/credit/reports/sub/ensemble/feature_importance.csv (rows=19)
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Saved sub-artifact (lgbm): artifacts/credit/models/models/lgbm.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Saved sub-artifact (xgb): artifacts/credit/models/models/xgb.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Saved sub-artifact (catboost): artifacts/credit/models/models/catboost.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Saved sub-artifact (elasticnet): artifacts/credit/models/models/elasticnet.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Saved sub-artifact (ensemble): artifacts/credit/models/models/ensemble.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Saved artifact: artifacts/credit/models/best.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Wrote test predictions: artifacts/credit/predictions/test_predictions.parquet (rows=6000, id_cols=['client_id'])
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | ============================================================
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | Pipeline completed in 175.4s — best=catboost, roc_auc=0.7796
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   log_file     : artifacts/credit/logs/train_20260528_220143.log
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   report_html  : artifacts/credit/reports/report.html
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   report_pdf   : artifacts/credit/reports/report.pdf
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   feature_importance_csv : artifacts/credit/reports/feature_importance.csv
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   feature_selection_csv : artifacts/credit/reports/feature_selection.csv
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   artifact     : artifacts/credit/models/best.joblib
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   sub_artifacts : artifacts/credit/models/models
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline |   test_predictions : artifacts/credit/predictions/test_predictions.parquet
+2026-05-28 22:04:38 | INFO    | auto_ml.pipeline | ============================================================
