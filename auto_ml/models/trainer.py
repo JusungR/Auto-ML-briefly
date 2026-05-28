@@ -284,10 +284,15 @@ class Trainer:
         # test_metrics 와의 gap 이 메모리제이션(overfit) 강도 신호가 된다.
         train_proba = final_model.predict_proba(X_train)
 
+        # 리포트용 파라미터: 모델이 학습 후 실측값을 노출하면 params 에 병합한다.
+        report_params = dict(params)
+        if hasattr(final_model, "actual_max_depth"):
+            report_params["actual_max_depth"] = final_model.actual_max_depth
+
         return ModelResult(
             name=name,
             model=final_model,
-            params=params,
+            params=report_params,
             oof_proba=oof_proba,
             test_proba=test_proba,
             train_proba=train_proba,
