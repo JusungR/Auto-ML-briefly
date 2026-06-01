@@ -66,6 +66,10 @@ training:
   primary_metric: roc_auc                   # roc_auc | pr_auc | f1 | accuracy | precision | recall | ks
   best_model: null                          # 명시 시 best 자동 선정을 override (lgbm | xgb | catboost).
                                             # 학습 후 변경은 auto-ml-set-best CLI 사용.
+  # 최종 모델 학습 전략 (선택) — 기본은 현행 동작. 자세한 설명은 README "## 최종 모델 학습 전략" 절.
+  final_fit_strategy: early_stop_on_test    # early_stop_on_test (기본) | iteration_capping | cv_bagging
+  iteration_cap_aggregation: mean           # iteration_capping 일 때만: mean | median
+  iteration_cap_headroom: 1.0               # iteration_capping 일 때만: capped = ceil(agg * headroom)
 
 # ==== 베이지안 하이퍼파라미터 최적화 (Optuna) ====================
 tuning:

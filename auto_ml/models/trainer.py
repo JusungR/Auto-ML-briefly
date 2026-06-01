@@ -11,6 +11,7 @@ best 모델 선정은 테스트 지표 기준 (모든 모델이 동일한 테스
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,15 +19,63 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 
-from auto_ml.config import AutoMLConfig
+from auto_ml.config import AutoMLConfig, TrainingConfig
 from auto_ml.models.base import BaseModel
 from auto_ml.models.ensemble_model import EnsembleModel
-from auto_ml.models.registry import build_model
+from auto_ml.models.registry import _REGISTRY, build_model
 from auto_ml.reporting.metrics import compute_metrics
 from auto_ml.tuning import HyperparameterOptimizer, TuningResult
 from auto_ml.utils.logger import get_logger
 
 logger = get_logger("trainer")
+
+
+def _apply_iteration_cap(
+    name: str,
+    params: dict[str, Any],
+    fold_best_iters: list[int | None],
+    tcfg: TrainingConfig,
+) -> dict[str, Any]:
+    """CV fold best_iter 를 집계해 부스팅 트리 수를 고정한 params 사본을 반환한다.
+
+    ``final_fit_strategy=iteration_capping`` 의 핵심. 테스트셋을 early-stopping
+    신호로 쓰지 않고, CV 단계에서 이미 얻은 fold 별 best_iter 평균(또는 median)으로
+    ``n_estimators`` / ``iterations`` 를 직접 지정한다.
+
+    - 모델의 iteration 파라미터 이름은 ``BaseModel.ITER_PARAM_NAME`` 에서 조회한다.
+      ``None`` (ElasticNet) 이면 부스팅이 아니므로 params 를 그대로 반환한다.
+    - ``best_iteration`` 이 None 인 fold (조기종료 미발동 등) 는 현재 설정된
+      iteration 값을 fallback 으로 사용해, 집계가 0 방향으로 끌려가지 않게 한다.
+    """
+    iter_key = _REGISTRY[name].ITER_PARAM_NAME
+    if iter_key is None:
+        logger.info(
+            "Iteration capping not applicable to %s (no boosting iterations) — "
+            "refitting on full train", name,
+        )
+        return dict(params)
+
+    default_params = getattr(_REGISTRY[name], "DEFAULT_PARAMS", {})
+    fallback = int(params.get(iter_key, default_params.get(iter_key, 1000)))
+    vals = [int(bi) if bi is not None else fallback for bi in fold_best_iters]
+    if not vals:
+        vals = [fallback]
+
+    agg = (
+        float(np.mean(vals))
+        if tcfg.iteration_cap_aggregation == "mean"
+        else float(np.median(vals))
+    )
+    capped = max(1, int(math.ceil(agg * tcfg.iteration_cap_headroom)))
+
+    out = dict(params)
+    out[iter_key] = capped
+    logger.info(
+        "Iteration cap (%s): agg=%s, fold_best_iters=%s, headroom=%.2f -> %s=%d",
+        name, tcfg.iteration_cap_aggregation, vals,
+        tcfg.iteration_cap_headroom, iter_key, capped,
+    )
+    return out
 
 
 @dataclass
@@ -105,7 +154,17 @@ class Trainer:
         # 앙상블 — 개별 모델 학습 완료 후 앙상블을 results 에 추가한다.
         primary = self.config.training.primary_metric
         ens_cfg = self.config.ensemble
-        if ens_cfg.enabled and len(results) >= 2:
+
+        # cv_bagging 은 이미 각 모델을 fold 평균(=bagging)으로 만든다. 그 위에 다시
+        # 점수 비례 앙상블을 얹으면 가중치/중요도 해석이 모호해지므로 자동 비활성화.
+        cv_bagging_on = self.config.training.final_fit_strategy == "cv_bagging"
+        if ens_cfg.enabled and cv_bagging_on:
+            logger.warning(
+                "Ensemble disabled — final_fit_strategy=cv_bagging already bags "
+                "fold models per algorithm."
+            )
+
+        if ens_cfg.enabled and not cv_bagging_on and len(results) >= 2:
             strategy = ens_cfg.strategy
             try:
                 if strategy == "elasticnet_plus_best":
@@ -146,7 +205,7 @@ class Trainer:
                     strategy,
                     {n: f"{w:.3f}" for n, w in weights.items()},
                 )
-        elif ens_cfg.enabled:
+        elif ens_cfg.enabled and not cv_bagging_on:
             logger.warning(
                 "Ensemble skipped — need at least 2 enabled models, got %d.", len(results)
             )
@@ -211,6 +270,67 @@ class Trainer:
         return dict(model_cfg.fixed_params), None
 
     # ------------------------------------------------------------------
+    def _build_final_model(
+        self,
+        strategy: str,
+        name: str,
+        params: dict[str, Any],
+        cat_cols: list[str],
+        fold_best_iters: list[int | None],
+        fold_models: list[BaseModel],
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_test: pd.DataFrame,
+        y_test: pd.Series,
+    ) -> BaseModel:
+        """``final_fit_strategy`` 에 따라 최종 모델을 만든다.
+
+        - ``early_stop_on_test`` (기본): 학습 전체로 fit 하되 테스트셋을 early-stopping
+          검증셋으로 사용한다 (현행 동작). 테스트셋이 학습 신호로 노출됨.
+        - ``iteration_capping``: CV fold best_iter 집계로 트리 수를 고정하고 early
+          stopping 없이 train 전체로 fit. 테스트셋 미노출.
+        - ``cv_bagging``: 재학습 없이 CV fold 모델들을 균등 가중 앙상블로 묶음.
+        """
+        cfg = self.config
+        loss = cfg.models[name].loss
+
+        if strategy == "cv_bagging":
+            logger.info(
+                "CV-bagging: keeping %d fold models (uniform weights) for %s",
+                len(fold_models), name,
+            )
+            return EnsembleModel.from_cv_folds(base_name=name, fold_models=fold_models)
+
+        if strategy == "iteration_capping":
+            capped_params = _apply_iteration_cap(
+                name, params, fold_best_iters, cfg.training,
+            )
+            final_model = build_model(
+                name=name,
+                params=capped_params,
+                categorical_columns=cat_cols,
+                random_state=cfg.training.random_state,
+                loss=loss,
+            )
+            # 테스트셋 미노출 — 검증셋/early stopping 없이 train 전체로 fit.
+            final_model.fit(X_train, y_train, None, None, early_stopping_rounds=None)
+            return final_model
+
+        # early_stop_on_test (기본) — 테스트셋을 early-stopping valid 로 사용.
+        final_model = build_model(
+            name=name,
+            params=params,
+            categorical_columns=cat_cols,
+            random_state=cfg.training.random_state,
+            loss=loss,
+        )
+        final_model.fit(
+            X_train, y_train, X_test, y_test,
+            early_stopping_rounds=cfg.training.early_stopping_rounds,
+        )
+        return final_model
+
+    # ------------------------------------------------------------------
     def _train_single(
         self,
         name: str,
@@ -231,6 +351,8 @@ class Trainer:
             name, X_train, y_train, cat_cols,
         )
 
+        strategy = cfg.training.final_fit_strategy
+
         # ----- CV(OOF) 평가 -------------------------------------------------
         kf = StratifiedKFold(
             n_splits=cfg.training.cv_folds,
@@ -239,6 +361,7 @@ class Trainer:
         )
         oof_proba = np.zeros(len(X_train), dtype=float)
         fold_best_iters: list[int | None] = []
+        fold_models: list[BaseModel] = []   # cv_bagging 일 때만 보관
 
         for fold_idx, (tr_idx, va_idx) in enumerate(kf.split(X_train, y_train)):
             X_tr = X_train.iloc[tr_idx]
@@ -259,24 +382,26 @@ class Trainer:
             )
             oof_proba[va_idx] = model.predict_proba(X_va)
             fold_best_iters.append(model.best_iteration)
+            if strategy == "cv_bagging":
+                fold_models.append(model)
             logger.info(
                 "  fold %d/%d done (best_iter=%s)",
                 fold_idx + 1, cfg.training.cv_folds, model.best_iteration,
             )
 
-        # ----- 최종 모델: 학습 전체 + 테스트 데이터를 조기종료 valid 로 사용 -----
-        # 주의: 테스트 셋을 early-stopping 신호로만 사용하고, best 모델 선정은 동일 테스트
-        # 점수로 한다. 폐쇄 운영 환경에서 단일 데이터셋 사용 일관성을 우선시한다.
-        final_model = build_model(
+        # ----- 최종 모델 결정 (전략별 분기) --------------------------------
+        logger.info("Final fit strategy: %s (model=%s)", strategy, name)
+        final_model = self._build_final_model(
+            strategy=strategy,
             name=name,
             params=params,
-            categorical_columns=cat_cols,
-            random_state=cfg.training.random_state,
-            loss=cfg.models[name].loss,
-        )
-        final_model.fit(
-            X_train, y_train, X_test, y_test,
-            early_stopping_rounds=cfg.training.early_stopping_rounds,
+            cat_cols=cat_cols,
+            fold_best_iters=fold_best_iters,
+            fold_models=fold_models,
+            X_train=X_train,
+            y_train=y_train,
+            X_test=X_test,
+            y_test=y_test,
         )
         test_proba = final_model.predict_proba(X_test)
         # In-sample 점수 — 학습 데이터에 fit 한 모델로 같은 학습 데이터를 다시 스코어링.

@@ -521,6 +521,54 @@ models:
 - 본 가이드의 모든 항목은 코드 변경 없이 `models.<name>.search_space` YAML
   편집만으로 즉시 적용된다. `tuning/space.py:sample_params` 가 임의 키를 처리.
 
+## 최종 모델 학습 전략 (final_fit_strategy)
+
+### 왜 필요한가
+
+기본 동작(`early_stop_on_test`)은 **최종 모델 fit 의 early-stopping 검증셋으로 테스트셋을
+사용**한다. 즉 최종 트리 수(`best_iter`)가 테스트셋에 맞춰 정해지고, best 모델 선정도 같은
+테스트 점수로 이뤄진다. 그 결과 리포트 §3 의 holdout 점수와 `Δ = Train − Test` 가 **낙관적으로
+편향**되어 실제 일반화 gap 을 과소평가한다.
+
+이를 줄이기 위해, **학습 단계에서 테스트셋을 전혀 노출하지 않는** 두 가지 선택적 전략을 제공한다.
+기본값은 현행 동작이라 지정하지 않으면 동작이 바뀌지 않는다.
+
+### 세 가지 전략
+
+| 전략 | 동작 | 테스트셋 노출 | 권장 상황 |
+|---|---|---|---|
+| `early_stop_on_test` (기본) | 학습 전체로 fit 하되 테스트셋을 early-stopping valid 로 사용 | O (학습 신호로 노출) | 현행 호환. 단일 데이터셋 일관성을 우선할 때 |
+| `iteration_capping` | CV fold 들의 `best_iter` 를 집계해 트리 수를 고정하고, early stopping 없이 train 전체로 재학습 | X | 리포트 §3 오버핏 Δ 가 큰데 정직한 트리 수로 재학습하고 싶을 때 |
+| `cv_bagging` | 최종 재학습 없이 CV 의 K 개 fold 모델을 **균등 가중 앙상블**로 묶어 최종 모델로 사용 | X | 분산이 크고 안정성을 원할 때. 재학습 비용도 절약 |
+
+두 신규 전략은 학습 단계에서 테스트셋을 보지 않으므로 Δ 가 정직해진다 — 보통 현행보다 약간
+커 보일 수 있는데, 이는 편향이 제거된 정상적인 현상이다.
+
+### 설정
+
+```yaml
+training:
+  final_fit_strategy: early_stop_on_test   # early_stop_on_test (기본) | iteration_capping | cv_bagging
+  iteration_cap_aggregation: mean          # iteration_capping 일 때: mean | median
+  iteration_cap_headroom: 1.0              # iteration_capping 일 때: capped = ceil(agg * headroom)
+```
+
+### 동작 / 호환성 메모
+
+- **모델별 iteration 키 차이 자동 처리** — `iteration_capping` 은 LGBM/XGBoost 의
+  `n_estimators`, CatBoost 의 `iterations` 를 모델 래퍼의 `ITER_PARAM_NAME` 으로 자동 식별해
+  고정한다.
+- **ElasticNet 면제** — 부스팅이 아니라 고정할 트리 수가 없으므로 `iteration_capping` 에서는
+  조용히 일반 refit(테스트셋 미노출)으로 동작한다.
+- **`cv_bagging` + 앙상블** — `ensemble.enabled: true` 와 함께 켜면, 각 모델이 이미 fold 평균
+  (bagging)이 되므로 그 위의 점수 비례 앙상블은 **자동 비활성화**되고 WARN 로그가 남는다.
+- **best_iter 미발동 fold** — early stopping 이 발동하지 않은 fold 는 `n_estimators`/`iterations`
+  설정값을 fallback 으로 사용해 집계가 0 방향으로 끌려가지 않게 한다.
+- **artifact 자기기술** — 사용된 전략은 `artifacts/.../models/<name>.joblib` 메타데이터의
+  `extra.training_mode` 에 기록된다 (`iteration_capping` 은 `iteration_cap`, `cv_bagging` 은
+  `cv_bagging` 부가 정보 포함). `cv_bagging` 의 sub-artifact 는 K 개 fold 모델을 품은
+  `EnsembleModel` 1개라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+
 ## SHAP 해석 (auto-ml-explain)
 
 학습된 모형이 각 입력 행을 왜 그렇게 예측했는지 **건별·변수별 기여도** 를 산출한다.
@@ -730,7 +778,10 @@ logging:
 ## 운영 메모
 
 - 타깃은 0/1 만 허용 (`utils/validation.py` 가 검증).
-- best 선정은 테스트 데이터 점수 기준.
+- best 선정은 테스트 데이터 점수 기준. 기본 학습 전략은 최종 fit 의 early-stopping 에도
+  테스트셋을 쓰므로 holdout/Δ 가 낙관적으로 편향될 수 있다 — `training.final_fit_strategy` 를
+  `iteration_capping` / `cv_bagging` 으로 바꾸면 학습 단계에서 테스트셋을 노출하지 않는다
+  (자세한 내용은 "## 최종 모델 학습 전략" 절 참고).
 - 손실 함수 기본은 binary logloss. `models.<name>.loss: focal` 로 모델별 Focal Loss
   전환 가능 (`focal_gamma=2.0`, `focal_alpha=0.25` 기본). 자세한 내용은 "## 손실 함수"
   절 참고.

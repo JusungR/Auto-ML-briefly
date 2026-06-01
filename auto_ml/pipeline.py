@@ -184,12 +184,23 @@ class AutoMLPipeline:
                 "best_iteration": mr.model.best_iteration,
                 "fold_best_iterations": mr.fold_best_iterations,
                 "best_params": mr.params,
+                "training_mode": cfg.training.final_fit_strategy,
                 "tuning": (
                     {"best_value": mr.tuning.best_value, "n_trials": mr.tuning.n_trials}
                     if mr.tuning is not None
                     else None
                 ),
             }
+            if cfg.training.final_fit_strategy == "iteration_capping":
+                sub_extra["iteration_cap"] = {
+                    "aggregation": cfg.training.iteration_cap_aggregation,
+                    "headroom": cfg.training.iteration_cap_headroom,
+                }
+            elif cfg.training.final_fit_strategy == "cv_bagging":
+                sub_extra["cv_bagging"] = {
+                    "n_folds": len(mr.fold_best_iterations) or cfg.training.cv_folds,
+                    "weights": "uniform",
+                }
             if selection is not None:
                 sub_extra["feature_selection"] = {
                     "base_estimator": selection.base_estimator,
@@ -229,6 +240,7 @@ class AutoMLPipeline:
                 "best_iteration": best_result.model.best_iteration,
                 "fold_best_iterations": best_result.fold_best_iterations,
                 "best_params": best_result.params,
+                "training_mode": cfg.training.final_fit_strategy,
                 "tuning": (
                     {
                         "best_value": best_result.tuning.best_value,

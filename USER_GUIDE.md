@@ -369,6 +369,10 @@ training:
   random_state: 42                  # 재현성을 위한 시드 (fold split 등)
   early_stopping_rounds: 50         # 부스팅 모델 조기종료 라운드 수
   primary_metric: roc_auc           # 모델 선택 / 튜닝 목적함수
+  # --- 최종 모델 학습 전략 (선택) — 지정하지 않으면 기본 동작 유지 ---
+  final_fit_strategy: early_stop_on_test   # early_stop_on_test | iteration_capping | cv_bagging
+  iteration_cap_aggregation: mean          # iteration_capping 일 때만: mean | median
+  iteration_cap_headroom: 1.0              # iteration_capping 일 때만: capped = ceil(agg * headroom)
 ```
 
 - **`cv_folds`** — StratifiedKFold 분할 수. 5 가 표준, 적은 데이터(< 2k 행)면 3.
@@ -385,6 +389,52 @@ training:
   | `accuracy` | 정확도 |
   | `precision` / `recall` | 임계값 0.5 기준 |
   | `lift` | 상위 분위 lift |
+
+##### `final_fit_strategy` — 최종 모델을 어떻게 학습할지
+
+기본값(`early_stop_on_test`)은 **최종 모델을 학습할 때 테스트셋을 조기종료(early stopping)
+검증셋으로 사용**합니다. 편리하지만, 최종 트리 개수가 테스트셋에 맞춰지므로 리포트 §3 의
+"오버핏 점검" 에 나오는 `Δ = Train − Test` 가 실제보다 작게(낙관적으로) 보입니다.
+
+리포트의 Δ 가 크거나, 테스트셋을 학습에 일절 노출하고 싶지 않다면 아래 두 전략 중 하나를
+`training:` 에 한 줄 추가하면 됩니다. **코드 수정 없이 YAML 만 바꾸면 됩니다.**
+
+| 값 | 무엇을 하나 | 언제 쓰나 |
+|---|---|---|
+| `early_stop_on_test` (기본) | 테스트셋을 조기종료 검증셋으로 사용 | 기존과 동일하게 두고 싶을 때 |
+| `iteration_capping` | CV 단계에서 각 fold 가 찾은 최적 트리 수의 평균으로 트리 개수를 **고정**하고, 테스트셋 없이 학습 데이터 전체로 다시 학습 | 오버핏 Δ 가 큰데, 정직한 트리 수로 한 번 더 학습하고 싶을 때 |
+| `cv_bagging` | 최종 재학습을 생략하고, CV 의 fold 모델 K 개를 **평균(앙상블)** 해서 최종 모델로 사용 | 결과 분산을 줄이고 안정적인 모델을 원할 때. 재학습 비용도 절약 |
+
+YAML 예시 (오버핏이 큰 신용 데이터에서 정직한 트리 수로 재학습하고 싶은 경우):
+
+```yaml
+training:
+  cv_folds: 5
+  primary_metric: roc_auc
+  final_fit_strategy: iteration_capping
+  iteration_cap_aggregation: mean     # 각 fold best_iter 의 평균 (median 도 가능)
+  iteration_cap_headroom: 1.0         # 1.0 = 평균 그대로. 1.05~1.1 로 올리면 약간 더 학습
+```
+
+또는 안정적인 앙상블을 원하는 경우:
+
+```yaml
+training:
+  final_fit_strategy: cv_bagging
+```
+
+알아두면 좋은 점:
+
+- **두 전략 모두 학습 단계에서 테스트셋을 보지 않습니다.** 그래서 리포트의 Δ 가 기본 전략보다
+  조금 커 보일 수 있는데, 이는 편향이 제거된 **정직한 수치**입니다.
+- **`iteration_capping`** 의 `headroom` 은 평균 트리 수에 곱하는 여유 배수입니다. 1.0 이 가장
+  보수적(평균 그대로)이고, 조금 더 학습시키고 싶으면 1.05~1.1 정도로 올립니다.
+- **ElasticNet** 은 부스팅 트리가 아니라 고정할 "트리 수" 가 없으므로 `iteration_capping` 에서
+  자동으로 제외되고 평소대로 학습됩니다 (오류 아님).
+- **`cv_bagging` 과 앙상블을 같이 켜면**, 각 모델이 이미 fold 평균이 되므로 그 위에 다시
+  앙상블을 얹지 않습니다 (`ensemble.enabled: true` 가 자동으로 무시되고 로그에 안내가 남습니다).
+- 어떤 전략으로 학습됐는지는 산출물 `artifacts/.../models/<모델>.joblib` 메타데이터의
+  `training_mode` 에 기록됩니다.
 
 #### 7-3-c. 튜닝 옵션 (`tuning`)
 
@@ -759,6 +809,19 @@ auto-ml-score --config examples/titanic/config.yaml
 
 > 폐쇄망에서는 환경변수 `TITANIC_CSV` 에 사전 배포한 CSV 경로를 지정하면
 > 네트워크 없이 동일하게 동작합니다.
+
+더 큰 공개 데이터(UCI 신용카드 연체, 30k 행)로 검증하려면 `examples/credit/` 을 씁니다.
+앞서 설명한 `final_fit_strategy`(7-3-b) 를 시험해 보기에도 좋습니다 — config 의 `training:`
+블록에 `final_fit_strategy: cv_bagging` (또는 `iteration_capping`) 한 줄만 추가하면 됩니다.
+
+```bash
+# 데이터 준비 (인터넷 필요, 1회)
+python examples/credit/prepare_data.py
+
+# 학습 + 스코어링
+auto-ml-train --config examples/credit/config.yaml
+auto-ml-score --config examples/credit/config.yaml
+```
 
 ---
 
