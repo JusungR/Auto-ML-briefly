@@ -5,6 +5,9 @@
 - **Part I. 튜토리얼 (§1–5)** — 처음 사용하는 분이 설치부터 첫 실행까지 따라할 수 있는 단계별 안내.
 - **Part II. 레퍼런스 (§6–18)** — 설정 파일의 모든 섹션을 모듈별로 정리. 각 섹션은 **역할 → 옵션 표 → YAML 예시 → 동작 메모** 4단으로 반복되어, 필요한 부분만 찾아 읽도록 설계되었습니다.
 
+> **새 기능 — 최종 모델 학습 전략 (`final_fit_strategy`)**: 테스트셋 누설 없이 오버핏(Train·Test Δ)을
+> 줄이는 `iteration_capping` / `cv_bagging` 옵션이 추가되었습니다. → [§11 최종 모델 학습 전략](#최종-모델-학습-전략-final_fit_strategy)
+
 ---
 
 ## 목차
@@ -25,6 +28,7 @@
 9. [전처리 `preprocessing`](#9-전처리-preprocessing)
 10. [변수 선택 `feature_selection`](#10-변수-선택-feature_selection)
 11. [학습 `training`](#11-학습-training)
+    - [↳ 최종 모델 학습 전략 — iteration_capping / cv_bagging](#최종-모델-학습-전략-final_fit_strategy)
 12. [튜닝 `tuning`](#12-튜닝-tuning)
 13. [모델 `models`](#13-모델-models)
 14. [앙상블 `ensemble`](#14-앙상블-ensemble)
@@ -496,8 +500,8 @@ feature_selection:
 
 ### 역할
 
-CV 폴드 수, 조기 종료 라운드, 모델 선택 지표, **최종 모델 학습 전략**을 결정합니다.
-파이프라인은 각 모델에 대해 (1) 튜닝 → (2) StratifiedKFold OOF 평가 → (3) 최종 fit →
+CV 폴드 수, 조기 종료 라운드, 모델 선택 지표, **[최종 모델 학습 전략](#최종-모델-학습-전략-final_fit_strategy)**
+을 결정합니다. 파이프라인은 각 모델에 대해 (1) 튜닝 → (2) StratifiedKFold OOF 평가 → (3) 최종 fit →
 (4) 테스트 평가의 순서로 동작하며, best 모델은 테스트 점수 기준으로 자동 선정됩니다.
 
 ### 옵션
@@ -523,9 +527,7 @@ CV 폴드 수, 조기 종료 라운드, 모델 선택 지표, **최종 모델 �
 | `f1` / `precision` / `recall` | 임계값 0.5 기준 평가 |
 | `lift` | 상위 분위 lift |
 
-### YAML 예시
-
-기본 (현행 동작 유지):
+### YAML 예시 (기본 옵션)
 
 ```yaml
 training:
@@ -534,43 +536,73 @@ training:
   early_stopping_rounds: 50
   primary_metric: roc_auc
   best_model: null
-  # 아래 3개는 생략해도 됨 (기본값 동작)
-  final_fit_strategy: early_stop_on_test
-  iteration_cap_aggregation: mean
-  iteration_cap_headroom: 1.0
 ```
 
-오버핏 Δ 가 큰 경우 (테스트셋을 학습 신호로 쓰지 않도록 전환):
+> 최종 모델 학습 전략(`final_fit_strategy` / `iteration_cap_*`)은 옵션이 많아 아래
+> [최종 모델 학습 전략](#최종-모델-학습-전략-final_fit_strategy) 서브섹션에서 따로 다룹니다.
+
+### 동작 메모
+
+**`early_stopping_rounds`** 는 부스팅 세 모델에 통합 적용되지만 내부 구현이 다릅니다
+(LGBM callbacks, XGB 생성자 인자, CatBoost 학습 인자). OOF fold 학습에는 항상 적용되지만,
+**최종 fit 의 적용 여부는 `final_fit_strategy` 에 좌우**됩니다 (아래 서브섹션 참고).
+
+**`best_model` 강제 지정**
+- `lgbm` / `xgb` / `catboost` / `elasticnet` / `ensemble` 중 하나로 지정 가능. 알 수 없는
+  이름이면 `ValueError`.
+- 학습 후 변경하려면 `auto-ml-set-best --model <name>` CLI 사용 (재학습 불필요).
+
+### 최종 모델 학습 전략 (`final_fit_strategy`)
+
+`final_fit_strategy` 는 OOF 평가가 끝난 뒤 **운영에 쓸 최종 모델을 어떻게 만들지**를 결정합니다.
+세 가지 중 하나를 고르며, 기본값은 현행 동작과 동일한 `early_stop_on_test` 입니다 — **지정하지
+않으면 동작이 바뀌지 않습니다.**
+
+**왜 필요한가**
+
+기본 `early_stop_on_test` 는 최종 모델을 학습할 때 **테스트셋을 early-stopping 검증셋으로
+사용**합니다. 편리하지만 최종 트리 수(`best_iter`)와 best 모델 선정이 테스트셋에 맞춰지므로,
+리포트 §3 "오버핏 점검" 의 `Δ = Train − Test` 가 실제보다 **작게(낙관적으로)** 나옵니다 — 즉
+테스트 점수가 약간 부풀려집니다. 아래 두 전략은 학습 단계에서 테스트셋을 전혀 보지 않아 Δ 가
+정직해집니다.
+
+**세 전략 비교**
+
+| 전략 | 동작 | 테스트셋 노출 | 언제 쓰나 |
+|---|---|---|---|
+| `early_stop_on_test` (기본) | 학습 전체로 fit, 테스트셋을 조기종료 검증셋으로 사용 | O | 현행 호환 / 단일 데이터셋 일관성 우선 |
+| `iteration_capping` | CV fold best_iter 집계로 트리 수 고정, early stop 없이 train 전체로 재학습 | X | 오버핏 Δ 가 큰데 정직한 트리 수로 재학습하고 싶을 때 |
+| `cv_bagging` | 최종 재학습 생략, CV 의 K fold 모델을 균등 가중 앙상블로 사용 | X | 분산을 줄이고 안정적인 모델을 원할 때 (재학습 비용도 절약) |
+
+**관련 옵션** (모두 `training:` 아래):
+
+| 키 | 적용 전략 | 설명 |
+|---|---|---|
+| `final_fit_strategy` | 공통 | `early_stop_on_test`(기본) / `iteration_capping` / `cv_bagging` |
+| `iteration_cap_aggregation` | iteration_capping | fold best_iter 집계 방식. `mean`(기본) / `median` |
+| `iteration_cap_headroom` | iteration_capping | 집계값에 곱하는 여유 배수. `capped = ceil(agg × headroom)`. 기본 1.0 |
+
+**YAML 예시**
+
+오버핏 Δ 가 큰 경우 — 정직한 트리 수로 재학습:
 
 ```yaml
 training:
   cv_folds: 5
   primary_metric: roc_auc
   final_fit_strategy: iteration_capping
-  iteration_cap_aggregation: mean
-  iteration_cap_headroom: 1.0     # 1.05~1.1 로 올리면 약간 더 학습
+  iteration_cap_aggregation: mean     # 각 fold best_iter 의 평균 (median 도 가능)
+  iteration_cap_headroom: 1.0         # 1.0 = 평균 그대로. 1.05~1.1 로 올리면 약간 더 학습
 ```
 
-안정적인 앙상블 (CV fold K 개 모델을 균등 평균):
+안정적인 앙상블 — CV fold K 개 모델을 균등 평균:
 
 ```yaml
 training:
   final_fit_strategy: cv_bagging
 ```
 
-### 동작 메모
-
-**`early_stopping_rounds`** 는 부스팅 세 모델에 통합 적용되지만 내부 구현이 다릅니다
-(LGBM callbacks, XGB 생성자 인자, CatBoost 학습 인자). OOF fold 학습에는 항상 적용되지만,
-**최종 fit 의 적용 여부는 `final_fit_strategy` 에 좌우**됩니다.
-
-**`final_fit_strategy` — 세 전략 비교**
-
-| 전략 | 동작 | 테스트셋 노출 | 언제 쓰나 |
-|---|---|---|---|
-| `early_stop_on_test` (기본) | 학습 전체로 fit, 테스트셋을 조기종료 검증셋으로 사용 | O | 현행 호환 |
-| `iteration_capping` | CV fold best_iter 집계로 트리 수 고정, early stop 없이 train 전체로 재학습 | X | 오버핏 Δ 가 큰데 정직한 트리 수로 재학습 |
-| `cv_bagging` | 최종 재학습 생략, CV 의 K fold 모델을 균등 가중 앙상블로 사용 | X | 분산이 크고 안정성을 원할 때 |
+**동작 메모**
 
 - 두 신규 전략은 학습 단계에서 테스트셋을 보지 않으므로 리포트 §3 의 Δ 가 정직해집니다
   (기본 전략보다 약간 커 보일 수 있는데, 편향이 제거된 정상 수치입니다).
@@ -580,11 +612,6 @@ training:
   WARN 로그가 남습니다 (각 모델이 이미 fold 평균 = bagging 이므로 중복 방지).
 - 사용된 전략은 `<artifact_dir>/models/<name>.joblib` 메타데이터의 `extra.training_mode` 에
   기록됩니다.
-
-**`best_model` 강제 지정**
-- `lgbm` / `xgb` / `catboost` / `elasticnet` / `ensemble` 중 하나로 지정 가능. 알 수 없는
-  이름이면 `ValueError`.
-- 학습 후 변경하려면 `auto-ml-set-best --model <name>` CLI 사용 (재학습 불필요).
 
 ---
 
@@ -1143,7 +1170,8 @@ training:
 실행하세요(라이브러리가 자동으로 학습 시 기본값으로 채웁니다).
 
 **Q9. 오버핏 Δ 가 너무 큽니다**
-§11 의 `final_fit_strategy: iteration_capping` 또는 `cv_bagging` 으로 전환을 검토하세요.
+[§11 최종 모델 학습 전략](#최종-모델-학습-전략-final_fit_strategy)의
+`final_fit_strategy: iteration_capping` 또는 `cv_bagging` 으로 전환을 검토하세요.
 테스트셋이 학습 신호로 노출되는 편향을 제거합니다.
 
 **Q10. ElasticNet 만 Focal Loss 가 안 됩니다**
