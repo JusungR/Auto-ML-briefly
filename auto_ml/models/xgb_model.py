@@ -22,6 +22,7 @@ class XGBModel(BaseModel):
     """XGBoost 분류기 래퍼."""
 
     name = "xgb"
+    ITER_PARAM_NAME = "n_estimators"
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "objective": "binary:logistic",

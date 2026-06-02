@@ -1,4 +1,4 @@
-"""USER_GUIDE.md → USER_GUIDE.pdf 변환 (1회용 스크립트).
+"""Markdown → PDF 변환 스크립트 (USER_GUIDE.md, README.md).
 
 WeasyPrint + python-markdown 으로 변환한다. 한글 렌더링을 위해 시스템에
 설치된 CJK 폰트(WenQuanYi Zen Hei, Unifont) 를 fallback 으로 지정한다.
@@ -10,26 +10,12 @@ import markdown
 from weasyprint import CSS, HTML
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "USER_GUIDE.md"
-DST = ROOT / "USER_GUIDE.pdf"
 
-md_text = SRC.read_text(encoding="utf-8")
-html_body = markdown.markdown(
-    md_text,
-    extensions=["extra", "toc", "tables", "fenced_code", "codehilite"],
-)
-
-html_doc = f"""<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<title>auto_ml 사용 설명서</title>
-</head>
-<body>
-{html_body}
-</body>
-</html>
-"""
+# (소스 md, 출력 pdf, HTML title) 목록 — 두 문서를 동일 스타일로 변환.
+DOCS = [
+    (ROOT / "USER_GUIDE.md", ROOT / "USER_GUIDE.pdf", "auto_ml 사용 설명서"),
+    (ROOT / "README.md", ROOT / "README.pdf", "auto_ml README"),
+]
 
 css = CSS(string="""
 @page {
@@ -88,5 +74,21 @@ ul, ol { padding-left: 22px; }
 a { color: #0366d6; text-decoration: none; }
 """)
 
-HTML(string=html_doc, base_url=str(ROOT)).write_pdf(str(DST), stylesheets=[css])
-print(f"wrote {DST} ({DST.stat().st_size:,} bytes)")
+for src, dst, title in DOCS:
+    html_body = markdown.markdown(
+        src.read_text(encoding="utf-8"),
+        extensions=["extra", "toc", "tables", "fenced_code", "codehilite"],
+    )
+    html_doc = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+</head>
+<body>
+{html_body}
+</body>
+</html>
+"""
+    HTML(string=html_doc, base_url=str(ROOT)).write_pdf(str(dst), stylesheets=[css])
+    print(f"wrote {dst} ({dst.stat().st_size:,} bytes)")

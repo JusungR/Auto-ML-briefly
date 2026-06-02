@@ -19,6 +19,7 @@ class CatBoostModel(BaseModel):
     """CatBoost 분류기 래퍼."""
 
     name = "catboost"
+    ITER_PARAM_NAME = "iterations"
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "loss_function": "Logloss",

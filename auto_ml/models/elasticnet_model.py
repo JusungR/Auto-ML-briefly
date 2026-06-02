@@ -31,6 +31,8 @@ class ElasticNetModel(BaseModel):
     """Elastic Net 이진분류 래퍼."""
 
     name = "elasticnet"
+    # 부스팅 모델이 아니므로 iteration capping 대상에서 제외 (None).
+    ITER_PARAM_NAME = None
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "C": 1.0,

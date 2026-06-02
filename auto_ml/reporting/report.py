@@ -323,7 +323,7 @@ class ReportBuilder:
         pp = cfg.preprocessing
         tr = cfg.training
         tu = cfg.tuning
-        return {
+        summary = {
             "target_column": cfg.target_column,
             "categorical_columns": ", ".join(cfg.categorical_columns) or "(none)",
             "id_columns": ", ".join(cfg.id_columns) or "(none)",
@@ -338,11 +338,17 @@ class ReportBuilder:
             "training.early_stopping_rounds": tr.early_stopping_rounds,
             "training.primary_metric": tr.primary_metric,
             "training.random_state": tr.random_state,
+            "training.final_fit_strategy": tr.final_fit_strategy,
             "tuning.enabled": tu.enabled,
             "tuning.n_trials": tu.n_trials,
             "tuning.cv_folds": tu.cv_folds,
             "tuning.timeout": tu.timeout,
         }
+        # iteration_capping 일 때만 관련 키를 노출해 불필요한 잡음을 줄인다.
+        if tr.final_fit_strategy == "iteration_capping":
+            summary["training.iteration_cap_aggregation"] = tr.iteration_cap_aggregation
+            summary["training.iteration_cap_headroom"] = tr.iteration_cap_headroom
+        return summary
 
     @staticmethod
     def _html_to_pdf(html_str: str, pdf_path: Path) -> None:

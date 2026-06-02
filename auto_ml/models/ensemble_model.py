@@ -106,6 +106,32 @@ class EnsembleModel(BaseModel):
         weights = {"elasticnet": w_en, best_name: w_best}
         return cls(base_models=base_models, weights=weights)
 
+    @classmethod
+    def from_cv_folds(
+        cls,
+        base_name: str,
+        fold_models: list[BaseModel],
+    ) -> "EnsembleModel":
+        """동일 알고리즘의 K 개 fold 모델을 균등 가중 앙상블로 묶는다.
+
+        CV-bagging (``final_fit_strategy=cv_bagging``) 용. 최종 재학습 대신 CV
+        루프에서 학습된 fold 모델들을 그대로 평균한다. 테스트셋을 학습 신호로
+        쓰지 않으므로 일반화 추정이 정직하다.
+
+        Args:
+            base_name: 원본 모델 이름 (예: ``"lgbm"``). 서브모델 키 prefix.
+            fold_models: CV fold 별로 학습 완료된 BaseModel 인스턴스 리스트.
+
+        Returns:
+            ``EnsembleModel`` — 각 fold 에 1/K 균등 가중.
+        """
+        if not fold_models:
+            raise ValueError("from_cv_folds: fold_models is empty")
+        base_models = {f"{base_name}__fold{i}": m for i, m in enumerate(fold_models)}
+        w = 1.0 / len(fold_models)
+        weights = {k: w for k in base_models}
+        return cls(base_models=base_models, weights=weights)
+
     # ------------------------------------------------------------------
     def fit(
         self,

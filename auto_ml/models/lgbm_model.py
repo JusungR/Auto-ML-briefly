@@ -20,6 +20,7 @@ class LGBMModel(BaseModel):
     """LightGBM 분류기 래퍼."""
 
     name = "lgbm"
+    ITER_PARAM_NAME = "n_estimators"
 
     # 운영에서 보수적으로 동작하도록 한 기본 하이퍼파라미터.
     # 사용자 params 가 우선이며, 본 dict 는 그 위에 덮어써지는 fallback 이다.

@@ -230,6 +230,19 @@ class TrainingConfig:
                     None (기본) 이면 ``primary_metric`` 최대값 모형을 자동 선정.
                     값이 학습된 모형 이름이 아니면 ValueError.
                     학습 후 변경하려면 ``auto-ml-set-best`` CLI 사용.
+        final_fit_strategy: 최종 모델 학습 전략 (선택). 기본 ``early_stop_on_test`` 은
+                    최종 fit 의 early-stopping 검증셋으로 테스트셋을 사용하므로
+                    best_iter / best 선정이 테스트셋에 맞춰져 holdout·Δ 가 낙관적으로
+                    편향된다. 다음 두 대안은 학습 단계에서 테스트셋을 전혀 노출하지
+                    않아 Δ 가 정직해진다:
+                      - ``iteration_capping`` : CV fold 들의 best_iter 를 집계해 트리 수를
+                        고정하고 early stopping 없이 train 전체로 재학습.
+                      - ``cv_bagging`` : 최종 재학습을 생략하고 CV 의 K 개 fold 모델을
+                        균등 가중 앙상블로 묶어 최종 모델로 사용.
+        iteration_cap_aggregation: ``iteration_capping`` 일 때 fold best_iter 집계 방식
+                    (``mean`` | ``median``).
+        iteration_cap_headroom: ``iteration_capping`` 일 때 집계값에 곱하는 여유 배수.
+                    ``capped = ceil(agg * headroom)``. 기본 1.0 (집계값 그대로).
     """
 
     cv_folds: int = 5
@@ -237,6 +250,27 @@ class TrainingConfig:
     early_stopping_rounds: int = 50
     primary_metric: str = "roc_auc"
     best_model: str | None = None
+    final_fit_strategy: str = "early_stop_on_test"
+    iteration_cap_aggregation: str = "mean"
+    iteration_cap_headroom: float = 1.0
+
+    def __post_init__(self) -> None:
+        allowed_strategies = {"early_stop_on_test", "iteration_capping", "cv_bagging"}
+        if self.final_fit_strategy not in allowed_strategies:
+            raise ValueError(
+                "TrainingConfig.final_fit_strategy must be one of "
+                f"{sorted(allowed_strategies)}, got {self.final_fit_strategy!r}"
+            )
+        if self.iteration_cap_aggregation not in {"mean", "median"}:
+            raise ValueError(
+                "TrainingConfig.iteration_cap_aggregation must be 'mean' or 'median', "
+                f"got {self.iteration_cap_aggregation!r}"
+            )
+        if self.iteration_cap_headroom <= 0:
+            raise ValueError(
+                "TrainingConfig.iteration_cap_headroom must be > 0, "
+                f"got {self.iteration_cap_headroom}"
+            )
 
 
 @dataclass

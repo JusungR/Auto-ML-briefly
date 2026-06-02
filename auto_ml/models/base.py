@@ -30,6 +30,12 @@ class BaseModel(ABC):
 
     name: str = "base"
 
+    # 부스팅 iteration 개수를 지정하는 라이브러리 파라미터 이름.
+    # iteration capping (final_fit_strategy=iteration_capping) 이 이 키를 통해
+    # CV fold best_iter 평균으로 트리 수를 고정한다. 부스팅이 아닌 모델
+    # (ElasticNet) 은 None 으로 두어 capping 대상에서 제외됨을 표시한다.
+    ITER_PARAM_NAME: str | None = None
+
     def __init__(
         self,
         params: dict[str, Any] | None = None,
