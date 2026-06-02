@@ -1,5 +1,0 @@
-# Python 빌드/캐시 부산물
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
