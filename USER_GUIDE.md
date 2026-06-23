@@ -78,19 +78,24 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
        ▼               ▼
        └── auto-ml-train ──► best.joblib  + 리포트(HTML/PDF) + 로그
                                   │
-                                  ▼
-[스코어링 입력 Parquet] ──► auto-ml-score ──► scores.parquet (id + score + prediction)
+                       ┌──────────┤
+                       ▼          ▼
+[입력 Parquet] ► auto-ml-score   auto-ml-explain
+                       │                │
+                       ▼                ▼
+              scores.parquet      shap.parquet
+          (id + score + prediction)  (id + shap_<feature>... + base_value + score)
 ```
 
-핵심 명령어는 두 개입니다.
+핵심 명령어는 세 개입니다.
 
 | 명령어 | 언제 쓰나 | 결과물 |
 |---|---|---|
 | `auto-ml-train` | 모델을 만들 때 (보통 주 1회) | `best.joblib`, HTML/PDF 리포트, 로그 |
 | `auto-ml-score` | 새 데이터에 점수를 매길 때 (반복) | `scores.parquet` |
+| `auto-ml-explain` | 건별 변수 기여도가 필요할 때 | `shap.parquet` |
 
-추가 명령어:
-- `auto-ml-explain` — SHAP 으로 건별 변수 기여도 산출.
+보조 명령어:
 - `auto-ml-set-best` — 학습 후 best 모델을 다른 후보로 교체(재학습 불필요).
 
 ---
@@ -99,9 +104,10 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
 
 ### 필요한 것
 
-- **Python 3.9 이상** (`python --version` 으로 확인)
+- **Python 3.10 이상, 3.14 미만** (`python --version` 으로 확인)
 - **pip** (보통 Python 과 함께 설치)
 - **Git** (소스 코드 clone 용)
+- (SHAP 해석을 쓰려면) **shap** — `requirements.txt` 에 포함되어 있어 `pip install -r requirements.txt` 로 자동 설치됩니다. ElasticNet 모델의 SHAP 산출 시 필요합니다.
 - (PDF 리포트를 만들려면) **WeasyPrint 시스템 의존성**
   - macOS: `brew install pango libffi`
   - Ubuntu/Debian: `sudo apt-get install libpango-1.0-0 libpangoft2-1.0-0`
@@ -160,6 +166,9 @@ auto-ml-train --config configs/example.yaml
 
 # 3) 스코어링
 auto-ml-score --config configs/example.yaml
+
+# 4) SHAP 해석 (건별 변수 기여도)
+auto-ml-explain --config configs/example.yaml
 ```
 
 산출물은 다음 구조로 만들어집니다.
@@ -167,15 +176,29 @@ auto-ml-score --config configs/example.yaml
 ```
 artifacts/
 ├── models/
-│   └── best.joblib              ← 전처리기 + 모델 + 메타데이터 한 덩어리
+│   ├── best.joblib              ← 전처리기 + 모델 + 메타데이터 한 덩어리
+│   └── models/                  ← 후보 모델별 sub-artifact
+│       ├── lgbm.joblib
+│       ├── xgb.joblib
+│       ├── catboost.joblib
+│       └── ensemble.joblib      ← (앙상블 활성 시)
+├── predictions/
+│   └── test_predictions.parquet ← 학습 시 holdout 예측 (id + score + prediction + target)
 ├── reports/
 │   ├── report.html              ← 브라우저로 열기
-│   └── report.pdf               ← 동일 내용 PDF
+│   ├── report.pdf               ← 동일 내용 PDF
+│   ├── feature_importance.csv   ← 전체 변수 중요도
+│   ├── feature_selection.csv    ← (변수 선택 활성 시) 선택 빈도
+│   └── sub/                     ← 비-best 모형별 상세 리포트
+│       └── <model>/report.html, feature_importance.csv …
 ├── scores/
 │   └── scores.parquet           ← id_columns + score + prediction
+├── explanations/
+│   └── shap.parquet             ← id_columns + shap_<feature>... + base_value + score
 └── logs/
     ├── train_YYYYMMDD_HHMMSS.log
-    └── score_YYYYMMDD_HHMMSS.log
+    ├── score_YYYYMMDD_HHMMSS.log
+    └── explain_YYYYMMDD_HHMMSS.log
 ```
 
 `artifacts/reports/report.html` 을 브라우저로 열어 모델 비교표, ROC 곡선, feature importance
@@ -187,6 +210,13 @@ artifacts/
 1. `configs/example.yaml` 을 복사해 데이터 경로·타깃 컬럼 이름만 수정 → [§7 데이터 입력](#7-데이터-입력-top-level)
 2. `configs/features.csv` 에 사용할 컬럼을 적기 → [§8 features.csv](#8-featurescsv--사용할-컬럼-정의)
 3. 필요에 따라 모델·튜닝·앙상블 설정 조정 → [§13 모델](#13-모델-models), [§12 튜닝](#12-튜닝-tuning), [§14 앙상블](#14-앙상블-ensemble)
+
+> **더 알아보기 — 실전 예시와 Python API**
+>
+> - `examples/credit/prepare_data.py` — 신용카드 데이터를 Parquet 으로 변환하는 전처리 예시
+> - `examples/titanic/prepare_data.py` — Titanic 데이터셋 전처리 예시
+> - `examples/run_train.py` — CLI 대신 Python 코드에서 학습 파이프라인을 직접 호출하는 예시
+> - `examples/run_score.py` — Python 코드에서 배치 스코어링을 호출하는 예시
 
 ---
 
@@ -1071,12 +1101,14 @@ SHAP 시 이 파일 하나만 있으면 됩니다.
 전체 sub-artifact 구조:
 
 ```
-<artifact_dir>/best.joblib                  ← 운영용 (scoring/explain 대상)
-<artifact_dir>/models/lgbm.joblib           ← 후보 1
-<artifact_dir>/models/xgb.joblib            ← 후보 2
-<artifact_dir>/models/catboost.joblib       ← 후보 3
-<artifact_dir>/models/elasticnet.joblib     ← 후보 4 (enabled 시)
-<artifact_dir>/models/ensemble.joblib       ← 앙상블 후보 (enabled 시)
+<artifact_dir>/
+├── best.joblib                  ← 운영용 (scoring/explain 대상)
+└── models/
+    ├── lgbm.joblib              ← 후보 1
+    ├── xgb.joblib               ← 후보 2
+    ├── catboost.joblib          ← 후보 3
+    ├── elasticnet.joblib        ← 후보 4 (enabled 시)
+    └── ensemble.joblib          ← 앙상블 후보 (enabled 시)
 ```
 
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본입니다. 각 sub-artifact 는 독립 번들이라
@@ -1084,18 +1116,37 @@ SHAP 시 이 파일 하나만 있으면 됩니다.
 
 ### B.2 HTML / PDF 리포트
 
-`reporting.output_dir/report.html` 을 브라우저로 열면 다음 섹션을 볼 수 있습니다.
+`reporting.output_dir/report.html` 을 브라우저로 열면 8개 섹션으로 구성된 리포트를 볼 수 있습니다.
 
-- 모델 비교표 (CV / Test 점수)
-- **오버핏 점검** (Train vs Test, Δ)
-- 튜닝 결과 (Optuna 가 찾은 best params)
-- ROC / PR 곡선
-- Feature importance (gain 기준)
-- Score 분포 히스토그램
-- Confusion matrix
-- (활성 시) 변수 선택 결과 (frequency 막대 + 채택/제외 라벨)
+| 섹션 | 내용 |
+|---|---|
+| **§1 모델 비교 (holdout 기준)** | 전 모델 Test 점수 비교표 + best 하이라이트 |
+| **§2 CV (OOF) 비교** | Out-Of-Fold 평가 비교표 |
+| **§3 오버핏 점검 (Train vs Holdout)** | Train·Test 점수 Δ 표 — 과적합 진단 |
+| **§4 곡선 비교** | ROC Curve + Precision-Recall Curve |
+| **§5 Best 모델 상세** | Feature Importance (상위 N), 10-분위 분석, Score Distribution, Confusion Matrix |
+| **§6 학습 설정 요약** | 사용된 YAML 설정 핵심 요약 |
+| **§7 모델 파라미터** | 각 모델의 최종 파라미터 (Optuna best params 포함) |
+| **§8 변수 선택** | (활성 시) Stability Selection 빈도 막대 + 채택/제외 라벨 |
 
 PDF 도 동일 내용입니다.
+
+**부속 파일**
+- `feature_importance.csv` — 전체 변수 중요도 (HTML 은 `top_importance_features` 만 표시하지만 CSV 는 항상 전체).
+- `feature_selection.csv` — (변수 선택 활성 시) 변수별 선택 빈도. 모형 무관이라 메인 리포트에만 1개.
+
+**비-best 모형 sub-report**
+
+best 가 아닌 모형마다 `reporting.output_dir/sub/<model>/` 에 별도 리포트가 자동 생성됩니다.
+
+```
+reports/sub/lgbm/report.html, report.pdf, feature_importance.csv
+reports/sub/xgb/...
+reports/sub/ensemble/...
+```
+
+각 sub-report 는 해당 모형 vs best 점수 비교, feature importance, 10-분위 분석,
+score distribution, confusion matrix, 변수 선택 결과를 포함합니다.
 
 ### B.3 `scores.parquet` (스코어링 산출물)
 
@@ -1115,14 +1166,23 @@ user_id, score, prediction
 스키마 `<id_columns> + score + prediction + <target_column>`. 외부 BI / 추가 진단용
 (overfit 검증, 임계값 튜닝 등).
 
-### B.5 SHAP 산출물
+### B.5 `shap.parquet` (SHAP 산출물)
 
-§17 출력 스키마 참고.
+`<id_columns> + shap_<feature>... + base_value + score` wide 포맷. 확률 도메인이며
+`base_value + sum(shap_*) ≈ score` 가법성이 보장됩니다. 자세한 스키마는 [§17 SHAP 해석](#17-shap-해석-explain) 참고.
 
 ### B.6 로그 파일
 
-`artifacts/logs/train_YYYYMMDD_HHMMSS.log` 에 단계별 진행, 모델 튜닝 결과, 산출물 경로,
-총 소요시간이 기록됩니다. 문제 발생 시 가장 먼저 보는 곳입니다.
+`artifacts/logs/` 에 stage 별 별도 로그가 생성됩니다.
+
+```
+train_YYYYMMDD_HHMMSS.log    ← 학습 파이프라인
+score_YYYYMMDD_HHMMSS.log    ← 배치 스코어링
+explain_YYYYMMDD_HHMMSS.log  ← SHAP 해석
+```
+
+단계별 진행, 모델 튜닝 결과, 산출물 경로, 총 소요시간이 기록됩니다. 문제 발생 시 가장 먼저
+보는 곳입니다.
 
 ---
 
