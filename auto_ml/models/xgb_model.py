@@ -98,12 +98,9 @@ class XGBModel(BaseModel):
         for col, enc in self._encoders.items():
             if col not in out.columns:
                 continue
-            values = out[col].astype(str).fillna("MISSING").values
-            known = set(enc.classes_)
-            mapped = np.array(
-                [enc.transform([v])[0] if v in known else self.UNKNOWN_CATEGORY_CODE for v in values]
-            )
-            out[col] = mapped
+            values = out[col].astype(str).fillna("MISSING")
+            lookup = {cls: i for i, cls in enumerate(enc.classes_)}
+            out[col] = values.map(lookup).fillna(self.UNKNOWN_CATEGORY_CODE).astype(int)
         return out
 
     def fit(

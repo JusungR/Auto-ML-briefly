@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -88,6 +89,7 @@ def _build_config_and_train(
     df = X.copy()
     df["target"] = y.values
     df["client_id"] = np.arange(1000, 1000 + len(df))
+    df["batch_id"] = (np.arange(len(df)) // 50)
 
     tr = df.iloc[:240].reset_index(drop=True)
     te = df.iloc[240:].reset_index(drop=True)
@@ -162,16 +164,71 @@ def test_explain_end_to_end_probability_additivity(tmp_path, tiny_binary_data):
     assert np.allclose(reconstructed, out["score"].values, atol=1e-12)
 
 
-def test_explain_id_columns_override(tmp_path, tiny_binary_data):
-    """explain.id_columns override 가 top-level 보다 우선한다."""
+def test_explain_uses_top_level_id_columns_when_explain_empty(tmp_path, tiny_binary_data):
+    """explain.id_columns 가 비어 있으면 top-level id_columns 를 사용한다."""
     cfg = _build_config_and_train(
         tmp_path, tiny_binary_data,
         top_id_columns=["client_id"],
-        explain_id_columns=[],  # 비어 있음 → top-level fallback
+        explain_id_columns=[],
     )
     run_explain(cfg)
     out = pd.read_parquet(cfg.explain.output_path)
     assert "client_id" in out.columns
+
+
+def test_explain_id_columns_explicit_overrides_top_level(tmp_path, tiny_binary_data):
+    """explain.id_columns 가 명시되면 top-level id_columns 보다 우선한다."""
+    cfg = _build_config_and_train(
+        tmp_path, tiny_binary_data,
+        top_id_columns=["client_id", "batch_id"],
+        explain_id_columns=["client_id"],  # batch_id 제외
+    )
+    run_explain(cfg)
+    out = pd.read_parquet(cfg.explain.output_path)
+    assert "client_id" in out.columns
+    assert "batch_id" not in out.columns
+
+
+def test_explain_fallback_to_artifact_metadata_when_both_empty(tmp_path, tiny_binary_data):
+    """top-level / explain 둘 다 비어 있으면 artifact metadata 의 id_columns 사용."""
+    cfg = _build_config_and_train(
+        tmp_path, tiny_binary_data,
+        top_id_columns=["client_id"],
+    )
+    cfg.id_columns = []
+    cfg.explain.id_columns = []
+    run_explain(cfg)
+    out = pd.read_parquet(cfg.explain.output_path)
+    assert "client_id" in out.columns
+
+
+def test_warn_when_id_column_missing_from_explain_input(tmp_path, tiny_binary_data):
+    """설정된 id 컬럼이 입력 parquet 에 없으면 WARN 발화."""
+    cfg = _build_config_and_train(
+        tmp_path, tiny_binary_data,
+        top_id_columns=["client_id"],
+    )
+    explainer = Explainer.from_artifact(Path(cfg.artifact_dir) / "best.joblib")
+    df = pd.read_parquet(cfg.explain.input_path)
+
+    records: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = _Capture(level=logging.WARNING)
+    explainer_logger = logging.getLogger("auto_ml.explainer")
+    explainer_logger.addHandler(handler)
+    try:
+        out = explainer.explain(df, id_columns=["client_id", "missing_col"])
+    finally:
+        explainer_logger.removeHandler(handler)
+
+    assert "client_id" in out.columns
+    assert "missing_col" not in out.columns
+    warn_msgs = " ".join(r.getMessage() for r in records if r.levelno == logging.WARNING)
+    assert "missing_col" in warn_msgs
 
 
 def test_explainer_score_matches_scorer(tmp_path, tiny_binary_data):

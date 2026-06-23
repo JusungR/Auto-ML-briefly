@@ -26,6 +26,7 @@ from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting.report import ReportBuilder
 from auto_ml.utils.io import (
+    ARTIFACT_FILENAME,
     ArtifactMetadata,
     save_artifact,
     summarize_dataframe,
@@ -35,8 +36,6 @@ from auto_ml.utils.logger import get_logger, setup_logging
 from auto_ml.utils.validation import validate_binary_target, validate_schema
 
 logger = get_logger("pipeline")
-
-ARTIFACT_FILENAME = "best.joblib"
 
 
 class AutoMLPipeline:

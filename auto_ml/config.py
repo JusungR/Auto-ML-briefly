@@ -255,6 +255,12 @@ class TrainingConfig:
     iteration_cap_headroom: float = 1.0
 
     def __post_init__(self) -> None:
+        allowed_metrics = {"roc_auc", "pr_auc", "f1", "accuracy", "precision", "recall", "ks"}
+        if self.primary_metric not in allowed_metrics:
+            raise ValueError(
+                "TrainingConfig.primary_metric must be one of "
+                f"{sorted(allowed_metrics)}, got {self.primary_metric!r}"
+            )
         allowed_strategies = {"early_stop_on_test", "iteration_capping", "cv_bagging"}
         if self.final_fit_strategy not in allowed_strategies:
             raise ValueError(

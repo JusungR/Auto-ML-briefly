@@ -6,6 +6,19 @@ import pytest
 from auto_ml.config import AutoMLConfig, TrainingConfig, load_config
 
 
+def test_invalid_primary_metric_raises():
+    with pytest.raises(ValueError, match="primary_metric must be one of"):
+        TrainingConfig(primary_metric="bogus_metric")
+
+
+@pytest.mark.parametrize(
+    "metric", ["roc_auc", "pr_auc", "f1", "accuracy", "precision", "recall", "ks"]
+)
+def test_valid_primary_metrics_accepted(metric):
+    cfg = TrainingConfig(primary_metric=metric)
+    assert cfg.primary_metric == metric
+
+
 def test_default_strategy_is_early_stop_on_test():
     """기본 전략은 현행 동작(early_stop_on_test) — 비파괴 회귀 가드."""
     assert TrainingConfig().final_fit_strategy == "early_stop_on_test"

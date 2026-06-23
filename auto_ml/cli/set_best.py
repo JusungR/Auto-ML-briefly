@@ -16,12 +16,10 @@ from datetime import datetime
 from pathlib import Path
 
 from auto_ml.config import AutoMLConfig, load_config
-from auto_ml.utils.io import load_artifact, save_artifact
+from auto_ml.utils.io import ARTIFACT_FILENAME, load_artifact, save_artifact
 from auto_ml.utils.logger import get_logger, setup_logging
 
 logger = get_logger("set_best")
-
-ARTIFACT_FILENAME = "best.joblib"
 SUB_ARTIFACT_DIRNAME = "models"
 
 
