@@ -17,12 +17,10 @@ import pandas as pd
 
 from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.scoring.scorer import Scorer
-from auto_ml.utils.io import summarize_dataframe, warn_degenerate_columns
+from auto_ml.utils.io import ARTIFACT_FILENAME, summarize_dataframe, warn_degenerate_columns
 from auto_ml.utils.logger import get_logger, setup_logging
 
 logger = get_logger("scoring.runner")
-
-ARTIFACT_FILENAME = "best.joblib"
 
 
 def run_scoring(config: AutoMLConfig) -> Path:

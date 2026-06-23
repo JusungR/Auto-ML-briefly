@@ -28,6 +28,8 @@ import cloudpickle
 import joblib
 import pandas as pd
 
+ARTIFACT_FILENAME = "best.joblib"
+
 
 @dataclass
 class ArtifactMetadata:
