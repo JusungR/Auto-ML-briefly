@@ -2,7 +2,7 @@
 
 cron / Airflow / 사내 스케줄러에서 다음과 같이 호출한다::
 
-    auto-ml-score --config configs/score.yaml
+    python inference/run_all.py --config configs/example.yaml
 
 학습 산출물(artifact) 경로는 설정 YAML 의 ``artifact_dir`` 와
 관례적인 파일명(``best.joblib``) 으로 결정한다. 입출력은 모두 Parquet.
@@ -13,11 +13,9 @@ import argparse
 import time
 from pathlib import Path
 
-import pandas as pd
-
 from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.scoring.scorer import Scorer
-from auto_ml.utils.io import ARTIFACT_FILENAME, summarize_dataframe, warn_degenerate_columns
+from auto_ml.stages import inference as stages_inference
 from auto_ml.utils.logger import get_logger, setup_logging
 
 logger = get_logger("scoring.runner")
@@ -47,44 +45,13 @@ def run_scoring(config: AutoMLConfig) -> Path:
     if log_file is not None:
         logger.info("Log file: %s", log_file)
 
-    artifact_path = Path(config.artifact_dir) / ARTIFACT_FILENAME
-    if not artifact_path.exists():
-        raise FileNotFoundError(
-            f"Artifact not found at {artifact_path}. Train first with auto-ml-train."
-        )
-
-    input_path = Path(config.scoring.input_path)
-    if not input_path.exists():
-        raise FileNotFoundError(f"Scoring input not found: {input_path}")
-
+    # 전처리 → 예측 → 후처리 (단계별 구현은 auto_ml.stages.inference)
+    artifact_path = stages_inference.artifact_path_of(config)
     logger.info("Loading artifact: %s", artifact_path)
     scorer = Scorer.from_artifact(artifact_path)
-
-    logger.info("Reading input parquet: %s", input_path)
-    df = pd.read_parquet(input_path)
-    # 스코어링 입력은 target 이 없으므로 클래스 비율 절은 생략된다.
-    logger.info("Input: %s", summarize_dataframe(df))
-    # 모델 feature 컬럼 한정 — 스코어링 입력이 학습 시점과 분포가 깨졌는지 조기 감지.
-    warn_degenerate_columns(
-        df,
-        columns=list(scorer.metadata.feature_columns),
-        logger=logger,
-        context="score_input",
-    )
-
-    # id_columns 우선순위: scoring.id_columns (override) > top-level config.id_columns
-    # 둘 다 비어 있으면 scorer 가 artifact metadata 의 학습 시점 id_columns 로 fallback.
-    id_cols = config.scoring.id_columns or config.id_columns or None
-    out = scorer.score(
-        df,
-        threshold=config.scoring.threshold,
-        id_columns=id_cols,
-    )
-
-    output_path = Path(config.scoring.output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(output_path, index=False)
-    logger.info("Wrote scored output: %s (rows=%d)", output_path, len(out))
+    prep = stages_inference.preprocess(config, scorer=scorer)
+    pred = stages_inference.predict(prep, scorer=scorer)
+    output_path = stages_inference.postprocess(config, pred)
 
     elapsed = time.perf_counter() - started_at
     logger.info("=" * 60)
@@ -94,7 +61,7 @@ def run_scoring(config: AutoMLConfig) -> Path:
 
 
 def cli_score() -> None:
-    """``auto-ml-score`` 진입점."""
+    """``python -m auto_ml.scoring.runner`` 진입점."""
     parser = argparse.ArgumentParser(description="Auto-ML batch scoring runner")
     parser.add_argument("--config", required=True, help="설정 YAML 경로")
     args = parser.parse_args()

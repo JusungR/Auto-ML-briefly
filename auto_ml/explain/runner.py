@@ -1,4 +1,4 @@
-"""``auto-ml-explain`` CLI 진입점.
+"""SHAP 해석 CLI 진입점.
 
 스코어링과 동일한 구조로, 학습 산출물(``best.joblib``) 을 로드해
 입력 Parquet 의 모든 행에 대해 건별·변수별 SHAP wide 표를 계산하고
@@ -6,7 +6,7 @@
 
 사용 예::
 
-    auto-ml-explain --config configs/example.yaml
+    python -m auto_ml.explain.runner --config configs/example.yaml
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def run_explain(config: AutoMLConfig) -> Path:
     artifact_path = Path(config.artifact_dir) / ARTIFACT_FILENAME
     if not artifact_path.exists():
         raise FileNotFoundError(
-            f"Artifact not found at {artifact_path}. Train first with auto-ml-train."
+            f"Artifact not found at {artifact_path}. Run training first (train/run_all.py)."
         )
 
     input_path = Path(config.explain.input_path)
@@ -87,7 +87,7 @@ def run_explain(config: AutoMLConfig) -> Path:
 
 
 def cli_explain() -> None:
-    """``auto-ml-explain`` 진입점."""
+    """``python -m auto_ml.explain.runner`` 진입점."""
     parser = argparse.ArgumentParser(description="Auto-ML SHAP explanation runner")
     parser.add_argument("--config", required=True, help="설정 YAML 경로")
     args = parser.parse_args()

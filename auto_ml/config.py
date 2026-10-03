@@ -229,7 +229,7 @@ class TrainingConfig:
         best_model: best 로 채택할 모형 이름을 명시적으로 지정한다.
                     None (기본) 이면 ``primary_metric`` 최대값 모형을 자동 선정.
                     값이 학습된 모형 이름이 아니면 ValueError.
-                    학습 후 변경하려면 ``auto-ml-set-best`` CLI 사용.
+                    학습 후 변경하려면 ``python -m auto_ml.cli.set_best`` 사용.
         final_fit_strategy: 최종 모델 학습 전략 (선택). 기본 ``early_stop_on_test`` 은
                     최종 fit 의 early-stopping 검증셋으로 테스트셋을 사용하므로
                     best_iter / best 선정이 테스트셋에 맞춰져 holdout·Δ 가 낙관적으로
@@ -408,7 +408,7 @@ class ScoringConfig:
 
 @dataclass
 class ExplainConfig:
-    """SHAP 해석 (auto-ml-explain) 옵션.
+    """SHAP 해석 (python -m auto_ml.explain.runner) 옵션.
 
     Attributes:
         input_path: 해석 대상 Parquet 경로 (보통 스코어링 입력과 동일).

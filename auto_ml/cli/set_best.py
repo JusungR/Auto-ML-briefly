@@ -1,4 +1,4 @@
-"""``auto-ml-set-best`` CLI 진입점.
+"""best 교체 CLI 진입점.
 
 학습이 끝난 뒤 ``artifact_dir/models/<name>.joblib`` 중 하나를
 ``artifact_dir/best.joblib`` 으로 승격(복사)한다. 재학습 없이 운영 best 를
@@ -7,7 +7,7 @@
 
 사용 예::
 
-    auto-ml-set-best --config configs/example.yaml --model xgb
+    python -m auto_ml.cli.set_best --config configs/example.yaml --model xgb
 """
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def promote(config: AutoMLConfig, model_name: str) -> Path:
 
 
 def cli_set_best() -> None:
-    """``auto-ml-set-best`` 진입점."""
+    """``python -m auto_ml.cli.set_best`` 진입점."""
     parser = argparse.ArgumentParser(
         description="Promote a sub-artifact (artifact_dir/models/<name>.joblib) "
                     "to artifact_dir/best.joblib without retraining."

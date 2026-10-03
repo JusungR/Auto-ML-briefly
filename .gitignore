@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+
+# 단계 간 중간 산출물 (train/*.py, inference/*.py 의 work_dir)
+artifacts/**/work/

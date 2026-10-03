@@ -54,6 +54,9 @@ class Scorer:
     ) -> pd.DataFrame:
         """입력 DataFrame 에 점수와 0/1 예측을 붙여 반환한다.
 
+        ``prepare`` (전처리) → ``predict`` (예측) → ``finalize`` (후처리) 를
+        연달아 호출한다.
+
         Args:
             df: 스코어링 대상. 학습 시 사용한 모든 feature 를 포함해야 한다.
             threshold: ``predict_proba`` 결과를 0/1 로 변환할 임계값.
@@ -61,6 +64,22 @@ class Scorer:
 
         Returns:
             ``id_columns + ['score', 'prediction']`` 컬럼을 갖는 DataFrame.
+        """
+        X_for_model, ids_df = self.prepare(df, id_columns=id_columns)
+        proba = self.predict(X_for_model)
+        return self.finalize(ids_df, proba, threshold=threshold)
+
+    # ------------------------------------------------------------------
+    def prepare(
+        self,
+        df: pd.DataFrame,
+        id_columns: list[str] | None = None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """전처리 단계 — 모델 입력 행렬과 보존할 id 컬럼을 만든다.
+
+        Returns:
+            ``(X_for_model, ids_df)``. ``ids_df`` 는 입력과 같은 index 를 갖고
+            보존할 id 컬럼만 담는다 (없으면 컬럼 0개).
         """
         feature_cols = list(self.metadata.feature_columns)
 
@@ -84,9 +103,6 @@ class Scorer:
         selected = list(getattr(self.metadata, "selected_features", []) or feature_cols)
         X_for_model = X_processed[selected]
 
-        proba = self.model.predict_proba(X_for_model)
-        prediction = (proba >= threshold).astype(int)
-
         # ids 결정 — 호출자가 명시한 값이 비어 있지 않으면 그대로 사용,
         # 아니면(None 또는 빈 리스트) metadata 의 학습 시점 id_columns 로 fallback.
         # 빈 리스트가 'IDs 의도적 제외' 가 아니라 단순 미설정인 경우가 대부분이므로
@@ -100,14 +116,39 @@ class Scorer:
                 "Configured id_columns missing from input: %s (kept: %s)",
                 missing_ids, keep_id_cols or "(none)",
             )
+        ids_df = df[keep_id_cols].copy()
+        return X_for_model, ids_df
 
-        out = pd.DataFrame(index=df.index)
-        for col in keep_id_cols:
-            out[col] = df[col].values
-        out["score"] = proba
-        out["prediction"] = prediction
+    # ------------------------------------------------------------------
+    def predict(self, X_for_model: pd.DataFrame) -> np.ndarray:
+        """예측 단계 — 전처리된 입력의 양성 확률을 반환한다."""
+        return np.asarray(self.model.predict_proba(X_for_model))
+
+    # ------------------------------------------------------------------
+    def finalize(
+        self,
+        ids_df: pd.DataFrame,
+        proba: np.ndarray,
+        threshold: float = 0.5,
+    ) -> pd.DataFrame:
+        """후처리 단계 — 임계값 적용 후 ``id + score + prediction`` 표를 만든다."""
+        out = build_score_frame(ids_df, proba, threshold)
         logger.info(
             "Scored %d rows (model=%s, threshold=%.3f)",
             len(out), self.metadata.model_name, threshold,
         )
         return out
+
+
+def build_score_frame(
+    ids_df: pd.DataFrame,
+    proba: np.ndarray,
+    threshold: float = 0.5,
+) -> pd.DataFrame:
+    """``ids_df`` 의 컬럼 + ``score`` + ``prediction`` (proba >= threshold) 표."""
+    out = pd.DataFrame(index=ids_df.index)
+    for col in ids_df.columns:
+        out[col] = ids_df[col].values
+    out["score"] = proba
+    out["prediction"] = (proba >= threshold).astype(int)
+    return out

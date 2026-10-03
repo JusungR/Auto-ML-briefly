@@ -66,7 +66,8 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
 - HTML / PDF 리포트 생성
 - 학습 결과 한 덩어리(`best.joblib`)로 저장
 
-학습이 끝나면 **`auto-ml-score`** 한 줄로 새 데이터에 점수를 매길 수 있습니다(cron 등 배치 운영용).
+학습이 끝나면 **`python inference/run_all.py`** 한 줄로 새 데이터에 점수를 매길 수 있습니다(cron 등 배치 운영용).
+패키지 설치 없이 저장소의 `.py` 파일을 직접 실행합니다.
 
 ---
 
@@ -76,27 +77,37 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
 [학습 Parquet]   [테스트 Parquet]
        │               │
        ▼               ▼
-       └── auto-ml-train ──► best.joblib  + 리포트(HTML/PDF) + 로그
+       └── train/ (전처리 → 학습 → 후처리) ──► best.joblib + 리포트(HTML/PDF) + 로그
                                   │
-                       ┌──────────┤
-                       ▼          ▼
-[입력 Parquet] ► auto-ml-score   auto-ml-explain
-                       │                │
-                       ▼                ▼
-              scores.parquet      shap.parquet
+                       ┌──────────┴───────────────┐
+                       ▼                          ▼
+[입력 Parquet] ► inference/ (전처리 → 예측 → 후처리)   python -m auto_ml.explain.runner
+                       │                          │
+                       ▼                          ▼
+              scores.parquet                shap.parquet
           (id + score + prediction)  (id + shap_<feature>... + base_value + score)
 ```
 
-핵심 명령어는 세 개입니다.
+학습·추론은 각각 3단계 스크립트로 나뉩니다. `run_all.py` 는 3단계를 한 번에 실행합니다.
 
-| 명령어 | 언제 쓰나 | 결과물 |
+| 스크립트 | 단계 | 하는 일 |
 |---|---|---|
-| `auto-ml-train` | 모델을 만들 때 (보통 주 1회) | `best.joblib`, HTML/PDF 리포트, 로그 |
-| `auto-ml-score` | 새 데이터에 점수를 매길 때 (반복) | `scores.parquet` |
-| `auto-ml-explain` | 건별 변수 기여도가 필요할 때 | `shap.parquet` |
+| `train/preprocess.py` | 학습 1/3 | 데이터 로드·검증, 전처리 fit/transform, (선택) 변수 선택 |
+| `train/train.py` | 학습 2/3 | 모델 튜닝 → CV → 최종 fit, best 선정 |
+| `train/postprocess.py` | 학습 3/3 | 리포트, `best.joblib`·후보 artifact 저장, test 예측 export |
+| `train/run_all.py` | 학습 전체 | 위 1~3 일괄 실행 (보통 주 1회) |
+| `inference/preprocess.py` | 추론 1/3 | `best.joblib` 의 전처리기로 입력 변환 |
+| `inference/predict.py` | 추론 2/3 | best 모델로 score(양성 확률) 계산 |
+| `inference/postprocess.py` | 추론 3/3 | 임계값 적용, id 결합, `scores.parquet` 저장 |
+| `inference/run_all.py` | 추론 전체 | 위 1~3 일괄 실행 (반복) |
 
-보조 명령어:
-- `auto-ml-set-best` — 학습 후 best 모델을 다른 후보로 교체(재학습 불필요).
+보조 명령어 (저장소 루트에서 실행):
+- `python -m auto_ml.explain.runner --config <yaml>` — 건별 변수 기여도(`shap.parquet`).
+- `python -m auto_ml.cli.set_best --config <yaml> --model <name>` — 학습 후 best 모델을 다른 후보로 교체(재학습 불필요).
+
+단계 사이 산출물은 `<artifact_dir 의 부모>/work/{train,inference}/*.pkl.gz` 에 저장되며
+`--work-dir` 로 위치를 바꿀 수 있습니다. 앞 단계 산출물이 없으면 다음 단계는
+`FileNotFoundError` 로 멈춥니다.
 
 ---
 
@@ -138,18 +149,20 @@ source .venv/bin/activate          # macOS / Linux
 # 4) 의존성 설치
 pip install -r requirements.txt
 
-# 5) auto_ml 자체를 editable 모드로 설치 (CLI 명령 활성화)
-pip install -e .
 ```
 
-설치를 확인합니다.
+`auto_ml` 패키지 자체는 설치하지 않습니다. 스크립트가 저장소 루트를 import 경로에
+추가하므로, 의존 라이브러리만 설치하면 바로 실행할 수 있습니다.
+
+설치를 확인합니다 (저장소 루트에서).
 
 ```bash
-auto-ml-train --help
-auto-ml-score --help
+python train/run_all.py --help
+python inference/run_all.py --help
 ```
 
-도움말이 나오면 성공입니다. `command not found` 가 보이면 가상환경 활성화 여부를 다시 확인하세요(프롬프트 앞에 `(.venv)` 가 보여야 합니다).
+도움말이 나오면 성공입니다. `ModuleNotFoundError` (예: `No module named 'lightgbm'`) 가 보이면
+가상환경 활성화와 `pip install -r requirements.txt` 실행 여부를 다시 확인하세요.
 
 ---
 
@@ -161,14 +174,20 @@ auto-ml-score --help
 # 1) 더미 데이터 생성 — data/ 에 train/test/score_input parquet 생성
 python examples/make_dummy_data.py
 
-# 2) 학습
-auto-ml-train --config configs/example.yaml
+# 2) 학습 (전처리 → 학습 → 후처리)
+python train/preprocess.py  --config configs/example.yaml
+python train/train.py       --config configs/example.yaml
+python train/postprocess.py --config configs/example.yaml
+#    한 번에: python train/run_all.py --config configs/example.yaml
 
-# 3) 스코어링
-auto-ml-score --config configs/example.yaml
+# 3) 추론 (전처리 → 예측 → 후처리)
+python inference/preprocess.py  --config configs/example.yaml
+python inference/predict.py     --config configs/example.yaml
+python inference/postprocess.py --config configs/example.yaml
+#    한 번에: python inference/run_all.py --config configs/example.yaml
 
 # 4) SHAP 해석 (건별 변수 기여도)
-auto-ml-explain --config configs/example.yaml
+python -m auto_ml.explain.runner --config configs/example.yaml
 ```
 
 산출물은 다음 구조로 만들어집니다.
@@ -580,7 +599,7 @@ training:
 **`best_model` 강제 지정**
 - `lgbm` / `xgb` / `catboost` / `elasticnet` / `ensemble` 중 하나로 지정 가능. 알 수 없는
   이름이면 `ValueError`.
-- 학습 후 변경하려면 `auto-ml-set-best --model <name>` CLI 사용 (재학습 불필요).
+- 학습 후 변경하려면 `python -m auto_ml.cli.set_best --model <name>` 사용 (재학습 불필요).
 
 ### 최종 모델 학습 전략 (`final_fit_strategy`)
 
@@ -890,7 +909,7 @@ ensemble:
   결합. 가중치는 softmax(점수 / 합) 로 정규화.
 
 **호환성**
-- 앙상블의 SHAP 은 서브모델 raw-margin SHAP 의 가중 평균을 반환하므로 `auto-ml-explain` 과
+- 앙상블의 SHAP 은 서브모델 raw-margin SHAP 의 가중 평균을 반환하므로 SHAP 해석(`auto_ml.explain`) 과
   완전 호환됩니다.
 - `cv_bagging` 과 함께 켜면 외부 앙상블은 **자동 비활성화** + WARN (각 모델이 이미 fold 평균).
 - 앙상블이 best 로 선정되면 `best.joblib` 이 곧 앙상블입니다. cloudpickle 이 서브모델 전체
@@ -943,7 +962,7 @@ reporting:
 
 ### 역할
 
-`auto-ml-score` 가 사용하는 옵션. 학습된 `best.joblib` 으로 새 데이터에 점수를 매겨 Parquet
+추론(`inference/*.py`) 이 사용하는 옵션. 학습된 `best.joblib` 으로 새 데이터에 점수를 매겨 Parquet
 으로 출력합니다.
 
 ### 옵션
@@ -981,7 +1000,7 @@ scoring:
 
 ### 역할
 
-`auto-ml-explain` 이 사용하는 옵션. 학습된 모델이 각 행을 왜 그렇게 예측했는지 **건별·변수별
+SHAP 해석(`python -m auto_ml.explain.runner`) 이 사용하는 옵션. 학습된 모델이 각 행을 왜 그렇게 예측했는지 **건별·변수별
 기여도(SHAP)** 를 산출해 Parquet 으로 저장합니다. LGBM/XGB/CatBoost 는 native API
 (`pred_contrib`), ElasticNet 은 `shap.LinearExplainer`, 앙상블은 서브모델 SHAP 의 가중
 평균을 사용합니다.
@@ -1072,19 +1091,29 @@ logging:
 
 | 명령 | 진입점 | 용도 |
 |---|---|---|
-| `auto-ml-train --config <yaml>` | `auto_ml.pipeline:cli_train` | 학습 파이프라인 |
-| `auto-ml-score --config <yaml>` | `auto_ml.scoring.runner:cli_score` | 배치 스코어링 |
-| `auto-ml-explain --config <yaml>` | `auto_ml.explain.runner:cli_explain` | SHAP 해석 |
-| `auto-ml-set-best --config <yaml> --model <name>` | `auto_ml.cli.set_best:cli_set_best` | 재학습 없이 best 교체 |
+모두 저장소 루트에서 실행합니다. 단계 스크립트는 `--config` 외에 `--work-dir` (선택) 을 받습니다.
 
-`auto-ml-set-best` 예시:
+| 명령 | 용도 |
+|---|---|
+| `python train/preprocess.py --config <yaml>` | 학습 1/3 전처리 |
+| `python train/train.py --config <yaml>` | 학습 2/3 모델 학습 |
+| `python train/postprocess.py --config <yaml>` | 학습 3/3 리포트·artifact 저장 |
+| `python train/run_all.py --config <yaml>` | 학습 전체 |
+| `python inference/preprocess.py --config <yaml>` | 추론 1/3 전처리 |
+| `python inference/predict.py --config <yaml>` | 추론 2/3 예측 |
+| `python inference/postprocess.py --config <yaml>` | 추론 3/3 결과 저장 |
+| `python inference/run_all.py --config <yaml>` | 추론 전체 |
+| `python -m auto_ml.explain.runner --config <yaml>` | SHAP 해석 |
+| `python -m auto_ml.cli.set_best --config <yaml> --model <name>` | 재학습 없이 best 교체 |
+
+best 교체 예시:
 
 ```bash
 # xgb 후보를 best 로 승격
-auto-ml-set-best --config configs/my_config.yaml --model xgb
+python -m auto_ml.cli.set_best --config configs/my_config.yaml --model xgb
 
 # 앙상블 후보를 best 로 승격
-auto-ml-set-best --config configs/my_config.yaml --model ensemble
+python -m auto_ml.cli.set_best --config configs/my_config.yaml --model ensemble
 ```
 
 승격된 best 의 metadata 에는 `promoted_at` / `promoted_from` (이전 best 이름) 이 기록됩니다.
@@ -1112,7 +1141,7 @@ SHAP 시 이 파일 하나만 있으면 됩니다.
 ```
 
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본입니다. 각 sub-artifact 는 독립 번들이라
-그 자체로 `auto-ml-score` / `auto-ml-explain` 호환입니다.
+그 자체로 스코어링 / SHAP 해석에 사용할 수 있습니다.
 
 ### B.2 HTML / PDF 리포트
 
@@ -1188,9 +1217,10 @@ explain_YYYYMMDD_HHMMSS.log  ← SHAP 해석
 
 ## C. 트러블슈팅 FAQ
 
-**Q1. `auto-ml-train: command not found`**
+**Q1. `ModuleNotFoundError` (예: `No module named 'lightgbm'`)**
 가상환경 활성화 여부 확인. 프롬프트 앞에 `(.venv)` 가 보여야 합니다. 안 보이면
-`source .venv/bin/activate` 다시 실행.
+`source .venv/bin/activate` 다시 실행하고 `pip install -r requirements.txt` 를 확인.
+`python -m auto_ml...` 형태 명령에서 `No module named 'auto_ml'` 이 나오면 저장소 루트에서 실행했는지 확인.
 
 **Q2. `ValueError: target column must contain only 0 and 1`**
 타깃 컬럼에 0/1 외 값(NaN, 2, "yes" 등)이 섞임. 데이터 정리 후 재시도.
@@ -1255,8 +1285,7 @@ training:
 
 ```bash
 pip install --no-index --find-links=wheelhouse -r requirements.txt
-pip install -e .
-auto-ml-score --config configs/my_config.yaml
+python inference/run_all.py --config configs/my_config.yaml
 ```
 
 PDF 리포트가 필요하면 WeasyPrint 시스템 의존성(libpango 등)도 함께 배포하세요.

@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-**Install (editable):**
+The package is **not installed**. Install only the dependencies and run the `.py` scripts from the repo root (YAML relative paths resolve against the cwd):
 ```bash
-pip install -e .
+pip install -r requirements.txt
 ```
 
-**Run all tests:**
+**Run all tests** (`pytest.ini` sets `pythonpath = .`):
 ```bash
 pytest
 ```
@@ -19,15 +19,30 @@ pytest
 pytest tests/test_focal_loss_math.py -v
 ```
 
-**CLI entry points (after install):**
+**Training — preprocess → train → postprocess:**
 ```bash
-auto-ml-train   --config configs/example.yaml
-auto-ml-score   --config configs/score.yaml
-auto-ml-explain --config configs/explain.yaml
-auto-ml-set-best --artifact ./artifacts/models --best lgbm
+python train/preprocess.py  --config configs/example.yaml
+python train/train.py       --config configs/example.yaml
+python train/postprocess.py --config configs/example.yaml
+python train/run_all.py     --config configs/example.yaml   # all three
 ```
 
-**Python API:**
+**Inference — preprocess → predict → postprocess:**
+```bash
+python inference/preprocess.py  --config configs/example.yaml
+python inference/predict.py     --config configs/example.yaml
+python inference/postprocess.py --config configs/example.yaml
+python inference/run_all.py     --config configs/example.yaml   # all three
+```
+Stage scripts hand off via `<work_dir>/*.pkl.gz` (default `<artifact_dir parent>/work/{train,inference}`, override with `--work-dir`).
+
+**Other entry points (from repo root):**
+```bash
+python -m auto_ml.explain.runner --config configs/explain.yaml
+python -m auto_ml.cli.set_best --config configs/example.yaml --model lgbm
+```
+
+**Python API** (repo root on `sys.path`):
 ```python
 from auto_ml import AutoMLPipeline, load_config
 outputs = AutoMLPipeline(load_config("configs/example.yaml")).run()
@@ -35,9 +50,13 @@ outputs = AutoMLPipeline(load_config("configs/example.yaml")).run()
 
 ## Architecture
 
+### Stages (`auto_ml/stages/`)
+
+`stages/train.py` (`preprocess` → `train` → `postprocess`) and `stages/inference.py` (`preprocess` → `predict` → `postprocess`) hold the step logic. `train/*.py` and `inference/*.py` are thin script wrappers that call one stage each and persist its output with `save_stage`/`load_stage` (`stages/common.py`, cloudpickle+gzip). `AutoMLPipeline.run()` and `run_scoring()` call the same functions in memory.
+
 ### Pipeline (`auto_ml/pipeline.py`)
 
-`AutoMLPipeline.run()` orchestrates five sequential steps:
+`AutoMLPipeline.run()` runs the three training stages, which cover these steps:
 
 1. **Load** — reads two separate Parquet files (`train_data_path`, `test_data_path`); validates schema and binary target.
 2. **Preprocess** — `PreprocessingPipeline` applies: null imputation → outlier winsorizing → skew transform → scaling. Fitted on train, `transform()`-only on test.
@@ -71,12 +90,12 @@ outputs = AutoMLPipeline(load_config("configs/example.yaml")).run()
 
 Each `.joblib` artifact bundles three objects: `(preprocessor, model, ArtifactMetadata)`. `ArtifactMetadata` carries `feature_columns`, `selected_features`, `categorical_columns`, `id_columns`, `target_column`, `primary_metric`, and an `extra` dict with training details.
 
-`auto-ml-set-best` can swap `best.joblib` to any sub-artifact without retraining by overwriting the symlink/copy.
+`python -m auto_ml.cli.set_best` can swap `best.joblib` to any sub-artifact without retraining by overwriting the symlink/copy.
 
 ### Scoring and Explain
 
-- **`auto_ml/scoring/`** — `Scorer.from_artifact(path)` loads the artifact and calls `predict_proba`; outputs a Parquet with score and optional id columns.
-- **`auto_ml/explain/`** — SHAP values via `auto-ml-explain`; output is wide-format Parquet: `<id_columns> + shap_<feature>... + base_value + score`.
+- **`auto_ml/scoring/`** — `Scorer.from_artifact(path)` loads the artifact; `score()` = `prepare()` (preprocess) → `predict()` → `finalize()` (threshold + id columns); outputs a Parquet with score and optional id columns.
+- **`auto_ml/explain/`** — SHAP values via `python -m auto_ml.explain.runner`; output is wide-format Parquet: `<id_columns> + shap_<feature>... + base_value + score`.
 
 ### Tests (`tests/`)
 
