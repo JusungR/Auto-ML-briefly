@@ -5,6 +5,10 @@
 - **Part I. 튜토리얼 (§1–5)** — 처음 사용하는 분이 설치부터 첫 실행까지 따라할 수 있는 단계별 안내.
 - **Part II. 레퍼런스 (§6–18)** — 설정 파일의 모든 섹션을 모듈별로 정리. 각 섹션은 **역할 → 옵션 표 → YAML 예시 → 동작 메모** 4단으로 반복되어, 필요한 부분만 찾아 읽도록 설계되었습니다.
 
+> **실행 방식 변경 — 설치 없이 `.py` 스크립트로 실행**: `pip install -e .` 와 `auto-ml-*` 명령이
+> 없어졌습니다. 학습은 `train/` 의 전처리 → 학습 → 후처리, 추론은 `inference/` 의
+> 전처리 → 예측 → 후처리 스크립트로 실행합니다. → [§2 전체 흐름](#2-전체-흐름), [§5 빠른 시작](#5-빠른-시작)
+
 > **새 기능 — 최종 모델 학습 전략 (`final_fit_strategy`)**: 테스트셋 누설 없이 오버핏(Train·Test Δ)을
 > 줄이는 `iteration_capping` / `cv_bagging` 옵션이 추가되었습니다. → [§11 최종 모델 학습 전략](#최종-모델-학습-전략-final_fit_strategy)
 
@@ -19,6 +23,9 @@
 3. [사전 준비](#3-사전-준비)
 4. [설치](#4-설치)
 5. [빠른 시작](#5-빠른-시작)
+    - [5.1 실행 샘플 (명령 한 줄)](#51-실행-샘플-명령-한-줄)
+    - [5.2 단계별 직접 실행](#52-단계별-직접-실행)
+    - [5.3 단계 재실행과 중간 산출물](#53-단계-재실행과-중간-산출물)
 
 **Part II. 설정 레퍼런스**
 
@@ -39,7 +46,7 @@
 
 **부록**
 
-- [A. CLI 명령어 모음](#a-cli-명령어-모음)
+- [A. 실행 명령어 모음](#a-실행-명령어-모음)
 - [B. 산출물 안내](#b-산출물-안내)
 - [C. 트러블슈팅 FAQ](#c-트러블슈팅-faq)
 - [D. 폐쇄망 이관](#d-폐쇄망-이관)
@@ -107,7 +114,10 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
 
 단계 사이 산출물은 `<artifact_dir 의 부모>/work/{train,inference}/*.pkl.gz` 에 저장되며
 `--work-dir` 로 위치를 바꿀 수 있습니다. 앞 단계 산출물이 없으면 다음 단계는
-`FileNotFoundError` 로 멈춥니다.
+`FileNotFoundError` 로 멈춥니다. 자세한 내용은 [§5.3](#53-단계-재실행과-중간-산출물) 참고.
+
+설치 없이 바로 돌려보려면 [§5.1 실행 샘플](#51-실행-샘플-명령-한-줄) 의
+`python examples/sample/run_sample.py` 한 줄이면 됩니다.
 
 ---
 
@@ -168,7 +178,48 @@ python inference/run_all.py --help
 
 ## 5. 빠른 시작
 
-진짜 데이터를 준비하기 전에, 더미 데이터로 동작 여부를 한 번 확인합니다.
+진짜 데이터를 준비하기 전에, 샘플 데이터로 동작 여부를 한 번 확인합니다.
+
+### 5.1 실행 샘플 (명령 한 줄)
+
+`examples/sample/` 에 바로 돌려볼 수 있는 샘플이 있습니다. 합성 데이터(고객 2,800명)를 만든 뒤
+학습 3단계 → 추론 3단계 스크립트를 순서대로 호출합니다. 규모를 작게 잡아 수십 초~1분 정도면 끝납니다.
+
+```bash
+python examples/sample/run_sample.py
+```
+
+| 파일 | 내용 |
+|---|---|
+| `examples/sample/run_sample.py` | 데이터 생성 + 6개 단계 스크립트 순차 실행 + 결과 요약 출력 |
+| `examples/sample/config.yaml` | 샘플용 설정 (튜닝 5 trials, LGBM·XGB·ElasticNet + 앙상블, PDF 끔) |
+| `examples/sample/features.csv` | 사용할 컬럼 정의 (`memo_code` 는 `used=false` 예시) |
+
+샘플 데이터 구성:
+
+| 컬럼 | 종류 | 비고 |
+|---|---|---|
+| `num_0` ~ `num_5` | 수치형 | `num_0` 에 결측 약 3% |
+| `amount` | 수치형 | 오른쪽 꼬리가 긴 분포 → skew 변환 대상 |
+| `region`, `channel` | 범주형 | `channel` 에 결측 약 5% |
+| `memo_code` | 범주형 | `features.csv` 에서 제외 |
+| `customer_id` | 식별자 | 결과 파일에 보존 |
+| `target` | 0/1 | 양성 비율 약 25% |
+
+실행이 끝나면 주요 산출물 경로와 `scores.parquet` 상위 5행이 출력됩니다. 모든 산출물은
+`artifacts/sample/` 아래에 생깁니다.
+
+옵션:
+- `--skip-data` — 이미 만든 `examples/sample/data/*.parquet` 를 그대로 사용.
+- `--only train` / `--only inference` — 학습 또는 추론만 실행 (추론만 실행하려면 학습 산출물이 있어야 합니다).
+
+`run_sample.py` 는 아래 5.2 와 같은 단계 스크립트를 `--config examples/sample/config.yaml` 로
+호출합니다. 샘플 동작을 확인했다면 다음으로 각 단계를 직접 실행해 봅니다.
+
+### 5.2 단계별 직접 실행
+
+`configs/example.yaml` 과 더미 데이터로 각 단계를 직접 실행합니다. 모든 명령은 **저장소 루트에서**
+실행합니다 (YAML 의 상대 경로가 현재 디렉토리 기준이기 때문).
 
 ```bash
 # 1) 더미 데이터 생성 — data/ 에 train/test/score_input parquet 생성
@@ -214,9 +265,17 @@ artifacts/
 │   └── scores.parquet           ← id_columns + score + prediction
 ├── explanations/
 │   └── shap.parquet             ← id_columns + shap_<feature>... + base_value + score
-└── logs/
-    ├── train_YYYYMMDD_HHMMSS.log
-    ├── score_YYYYMMDD_HHMMSS.log
+├── work/                        ← 단계 간 중간 산출물 (5.3 참고)
+│   ├── train/
+│   │   ├── train_preprocessed.pkl.gz
+│   │   └── train_result.pkl.gz
+│   └── inference/
+│       ├── inference_preprocessed.pkl.gz
+│       └── inference_predicted.pkl.gz
+└── logs/                        ← 실행한 스크립트별 로그 (B.6 참고)
+    ├── train_preprocess_YYYYMMDD_HHMMSS.log
+    ├── train_train_YYYYMMDD_HHMMSS.log
+    ├── ...
     └── explain_YYYYMMDD_HHMMSS.log
 ```
 
@@ -230,12 +289,45 @@ artifacts/
 2. `configs/features.csv` 에 사용할 컬럼을 적기 → [§8 features.csv](#8-featurescsv--사용할-컬럼-정의)
 3. 필요에 따라 모델·튜닝·앙상블 설정 조정 → [§13 모델](#13-모델-models), [§12 튜닝](#12-튜닝-tuning), [§14 앙상블](#14-앙상블-ensemble)
 
+### 5.3 단계 재실행과 중간 산출물
+
+각 단계 스크립트는 결과를 `work_dir` 에 저장하고, 다음 단계는 그 파일을 읽어 시작합니다.
+기본 `work_dir` 은 `artifact_dir` 의 상위 폴더 아래 `work/train`, `work/inference` 입니다
+(예: `artifact_dir: ./artifacts/models` → `./artifacts/work/train`). 위치를 바꾸려면 모든 단계에
+같은 `--work-dir <경로>` 를 주면 됩니다.
+
+| 단계 | 읽는 파일 | 저장하는 파일 |
+|---|---|---|
+| `train/preprocess.py` | 학습·테스트 Parquet | `train_preprocessed.pkl.gz` (fit 된 전처리기, 변수 선택 결과, 전처리된 train/test) |
+| `train/train.py` | `train_preprocessed.pkl.gz` | `train_result.pkl.gz` (모델별 학습 결과·지표) |
+| `train/postprocess.py` | 위 두 파일 | `best.joblib`, 후보 artifact, 리포트, `test_predictions.parquet` |
+| `inference/preprocess.py` | `best.joblib`, 입력 Parquet | `inference_preprocessed.pkl.gz` (모델 입력 행렬, id 컬럼) |
+| `inference/predict.py` | `inference_preprocessed.pkl.gz`, `best.joblib` | `inference_predicted.pkl.gz` (예측 확률, id 컬럼) |
+| `inference/postprocess.py` | `inference_predicted.pkl.gz` | `scores.parquet` |
+
+설정을 바꾼 뒤 어느 단계부터 다시 실행하면 되는지는 바꾼 섹션으로 정해집니다.
+
+| 바꾼 설정 | 다시 실행할 단계 |
+|---|---|
+| 데이터 경로, `features.csv`, top-level `id_columns`, `preprocessing`, `feature_selection` | `train/preprocess.py` 부터 |
+| `training`, `tuning`, `models`, `ensemble` | `train/train.py` 부터 |
+| `reporting` | `train/postprocess.py` 만 |
+| `scoring.input_path`, `scoring.id_columns`, top-level `id_columns` | `inference/preprocess.py` 부터 |
+| `scoring.threshold`, `scoring.output_path` | `inference/postprocess.py` 만 |
+| 새로 학습했거나 best 를 교체함 | `inference/preprocess.py` 부터 |
+
+주의: 단계 파일에는 "어떤 설정으로 만들었는지" 가 기록되지 않습니다. 앞 단계에 영향을 주는
+설정을 바꾸고 뒷 단계만 다시 실행하면, 옛 결과 위에서 실행되므로 위 표를 지켜 주세요.
+확실하지 않으면 `run_all.py` 로 전체를 다시 실행하는 것이 안전합니다.
+
 > **더 알아보기 — 실전 예시와 Python API**
 >
 > - `examples/credit/prepare_data.py` — 신용카드 데이터를 Parquet 으로 변환하는 전처리 예시
 > - `examples/titanic/prepare_data.py` — Titanic 데이터셋 전처리 예시
-> - `examples/run_train.py` — CLI 대신 Python 코드에서 학습 파이프라인을 직접 호출하는 예시
-> - `examples/run_score.py` — Python 코드에서 배치 스코어링을 호출하는 예시
+> - Python 코드에서 호출하려면 저장소 루트를 `sys.path` 에 넣은 뒤 다음을 사용합니다.
+>   - 단계별: `auto_ml.stages.train` 의 `preprocess` / `train` / `postprocess`,
+>     `auto_ml.stages.inference` 의 `preprocess` / `predict` / `postprocess`
+>   - 일괄: `AutoMLPipeline(load_config(path)).run()`, `auto_ml.scoring.runner.run_scoring(config)`
 
 ---
 
@@ -1054,7 +1146,7 @@ shap_prob[i] = feature_raw[i] / sum(feature_raw) * (p_pred - p_base)
 
 ### 역할
 
-학습/스코어링/SHAP 실행마다 stage 별 별도 로그 파일을 자동 생성합니다.
+학습/추론/SHAP 스크립트를 실행할 때마다 별도 로그 파일을 자동 생성합니다.
 
 ### 옵션
 
@@ -1077,8 +1169,8 @@ logging:
 
 ### 동작 메모
 
-- 파일명은 `train_YYYYMMDD_HHMMSS.log` / `score_YYYYMMDD_HHMMSS.log` /
-  `explain_YYYYMMDD_HHMMSS.log` 형식으로 stage 별 분리됩니다.
+- 파일명은 `<stage>_YYYYMMDD_HHMMSS.log` 형식이며, `<stage>` 는 실행한 스크립트에 따라
+  정해집니다 (목록은 [B.6 로그 파일](#b6-로그-파일)).
 - 콘솔과 파일은 동시에 활성화 가능. `to_file: false` 면 파일은 만들어지지 않습니다.
 - 각 로그에는 시작/종료 마커, 단계별 진행, 모델 튜닝 결과, 산출물 경로, 총 소요 시간이
   포함됩니다 — 문제 추적의 1차 자료.
@@ -1087,10 +1179,8 @@ logging:
 
 # 부록
 
-## A. CLI 명령어 모음
+## A. 실행 명령어 모음
 
-| 명령 | 진입점 | 용도 |
-|---|---|---|
 모두 저장소 루트에서 실행합니다. 단계 스크립트는 `--config` 외에 `--work-dir` (선택) 을 받습니다.
 
 | 명령 | 용도 |
@@ -1202,16 +1292,29 @@ user_id, score, prediction
 
 ### B.6 로그 파일
 
-`artifacts/logs/` 에 stage 별 별도 로그가 생성됩니다.
+`logging.log_dir` (기본 `artifacts/logs/`) 에 실행 단위로 로그가 생성됩니다.
 
 ```
-train_YYYYMMDD_HHMMSS.log    ← 학습 파이프라인
-score_YYYYMMDD_HHMMSS.log    ← 배치 스코어링
-explain_YYYYMMDD_HHMMSS.log  ← SHAP 해석
+train_preprocess_YYYYMMDD_HHMMSS.log       ← train/preprocess.py
+train_train_YYYYMMDD_HHMMSS.log            ← train/train.py
+train_postprocess_YYYYMMDD_HHMMSS.log      ← train/postprocess.py
+train_YYYYMMDD_HHMMSS.log                  ← train/run_all.py, AutoMLPipeline.run()
+inference_preprocess_YYYYMMDD_HHMMSS.log   ← inference/preprocess.py
+inference_predict_YYYYMMDD_HHMMSS.log      ← inference/predict.py
+inference_postprocess_YYYYMMDD_HHMMSS.log  ← inference/postprocess.py
+inference_YYYYMMDD_HHMMSS.log              ← inference/run_all.py
+score_YYYYMMDD_HHMMSS.log                  ← run_scoring() (Python API)
+explain_YYYYMMDD_HHMMSS.log                ← python -m auto_ml.explain.runner
 ```
 
 단계별 진행, 모델 튜닝 결과, 산출물 경로, 총 소요시간이 기록됩니다. 문제 발생 시 가장 먼저
 보는 곳입니다.
+
+### B.7 `work/` (단계 간 중간 산출물)
+
+`<artifact_dir 의 상위>/work/{train,inference}/*.pkl.gz` — 단계 스크립트가 다음 단계에 넘기는
+파일입니다 (cloudpickle + gzip). 내용과 재실행 규칙은 [§5.3](#53-단계-재실행과-중간-산출물) 참고.
+운영 스코어링에는 필요 없으며, 디스크가 부족하면 지워도 됩니다 (다음 실행 때 다시 생성).
 
 ---
 
@@ -1267,6 +1370,18 @@ training:
 **Q10. ElasticNet 만 Focal Loss 가 안 됩니다**
 지원하지 않는 조합입니다. `models.elasticnet.loss: logloss` (기본값) 로 두세요.
 
+**Q11. `FileNotFoundError: Stage output not found: ... Run the previous stage first.`**
+앞 단계 스크립트를 실행하지 않았거나, 앞 단계와 다른 `--work-dir` / 다른 config(`artifact_dir`) 를
+줬을 때 납니다. 앞 단계를 먼저 실행하고, 모든 단계에 같은 `--config` · `--work-dir` 를 주세요.
+
+**Q12. `FileNotFoundError: Artifact not found at .../best.joblib`**
+추론 전에 학습(`train/postprocess.py` 까지) 이 끝나야 합니다. 추론 config 의 `artifact_dir` 이
+학습 때와 같은지도 확인하세요.
+
+**Q13. 설정을 바꿨는데 결과가 그대로예요**
+뒷 단계만 다시 실행하면 앞 단계의 옛 결과를 그대로 씁니다. [§5.3](#53-단계-재실행과-중간-산출물)
+의 표에서 바꾼 설정에 해당하는 단계부터 다시 실행하세요.
+
 ---
 
 ## D. 폐쇄망 이관
@@ -1277,8 +1392,8 @@ training:
    ```bash
    pip wheel -r requirements.txt -w wheelhouse/
    ```
-2. **본 저장소 자체** — `git clone` 한 폴더 그대로.
-3. **학습 산출물** — `artifacts/models/best.joblib`
+2. **본 저장소 자체** — `git clone` 한 폴더 그대로 (`auto_ml/`, `train/`, `inference/` 가 필요합니다. 설치는 하지 않습니다).
+3. **학습 산출물** — `artifacts/models/best.joblib` (`work/` 폴더는 옮길 필요 없음)
 4. **스코어링용 설정 YAML**
 
 폐쇄망에서 설치:
@@ -1314,6 +1429,8 @@ PDF 리포트가 필요하면 WeasyPrint 시스템 의존성(libpango 등)도 �
 | **Focal Loss** | 어려운 샘플에 학습 신호를 집중시키는 손실 (Lin et al. 2017). 불균형 데이터 대응 |
 | **SHAP** | 건별·변수별 예측 기여도. Shapley value 기반 |
 | **Artifact** | 학습 결과물(모델 + 전처리기 + 메타데이터) 단일 번들 파일 |
+| **단계 (stage)** | 학습·추론을 나눈 실행 단위. 학습 = 전처리 → 학습 → 후처리, 추론 = 전처리 → 예측 → 후처리 |
+| **work_dir** | 단계 스크립트가 다음 단계에 넘기는 중간 산출물(`*.pkl.gz`) 을 두는 폴더 |
 | **Parquet** | 컬럼 기반 효율적 데이터 파일 형식 (CSV 보다 빠르고 작음) |
 
 ---

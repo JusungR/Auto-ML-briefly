@@ -34,6 +34,10 @@ python inference/predict.py     --config configs/example.yaml
 python inference/postprocess.py --config configs/example.yaml
 python inference/run_all.py     --config configs/example.yaml   # all three
 ```
+**End-to-end sample** (generates data, runs all six stage scripts, outputs to `artifacts/sample/`):
+```bash
+python examples/sample/run_sample.py
+```
 Stage scripts hand off via `<work_dir>/*.pkl.gz` (default `<artifact_dir parent>/work/{train,inference}`, override with `--work-dir`).
 
 **Other entry points (from repo root):**

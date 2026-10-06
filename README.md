@@ -649,6 +649,18 @@ WeasyPrint 는 시스템 폰트와 일부 라이브러리(libpango 등) 가 필�
 
 모든 명령은 **저장소 루트에서** 실행한다 (YAML 의 상대 경로가 현재 디렉토리 기준).
 
+### 실행 샘플
+
+데이터 생성 → 학습 3단계 → 추론 3단계를 한 번에 돌려보는 샘플 (약 1분 이내, 산출물은 `artifacts/sample/`):
+
+```bash
+python examples/sample/run_sample.py            # --skip-data, --only train|inference 옵션
+```
+
+설정은 `examples/sample/config.yaml`, 컬럼 정의는 `examples/sample/features.csv`.
+
+### 단계별 실행
+
 ```bash
 # 0) 더미 데이터 생성 (검증용)
 python examples/make_dummy_data.py

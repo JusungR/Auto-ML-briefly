@@ -1,0 +1,11 @@
+name,type,used
+num_0,continuous,true
+num_1,continuous,true
+num_2,continuous,true
+num_3,continuous,true
+num_4,continuous,true
+num_5,continuous,true
+amount,continuous,true
+region,category,true
+channel,category,true
+memo_code,category,false
