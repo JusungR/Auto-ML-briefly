@@ -6,15 +6,26 @@
 ## 구성
 
 ```
+train/                     학습 실행 스크립트 (설치 없이 python 으로 실행)
+├── preprocess.py          [1/3] 전처리 + (선택) 변수 선택
+├── train.py               [2/3] 모델 학습 + best 선정
+├── postprocess.py         [3/3] 리포트 / artifact 저장 / test 예측 export
+└── run_all.py             1~3 일괄 실행
+inference/                 추론 실행 스크립트
+├── preprocess.py          [1/3] artifact 전처리기로 입력 변환
+├── predict.py             [2/3] best 모델 예측 (score)
+├── postprocess.py         [3/3] 임계값 적용 + id 결합 → Parquet 저장
+└── run_all.py             1~3 일괄 실행
 auto_ml/
 ├── config.py              설정 dataclass + YAML 로더
-├── pipeline.py            학습 파이프라인 (auto-ml-train)
+├── stages/                학습 / 추론 단계 함수 (위 스크립트가 호출)
+├── pipeline.py            학습 파이프라인 (Python API)
 ├── preprocessing/         1) 결측 → 2) 이상치 → 2.5) skew 변환 → 3) 스케일링
 ├── feature_selection/     Stability Selection 변수 선택
 ├── models/                LGBM / XGBoost / CatBoost / ElasticNet 래퍼 + Ensemble + Trainer
 ├── tuning/                Optuna 베이지안 하이퍼파라미터 최적화
 ├── reporting/             HTML + PDF 리포트 (동일 내용)
-├── scoring/               배치 스코어링 (auto-ml-score)
+├── scoring/               배치 스코어링 (Scorer / run_scoring)
 └── utils/                 io / logger / validation
 ```
 
@@ -34,7 +45,7 @@ auto_ml/
    CV(OOF) 비교, **오버핏 점검 (Train vs Holdout, Δ)**, 튜닝 결과, ROC / PR 곡선,
    feature importance, score 분포, confusion matrix 포함.
 5. **주기 스코어링** — 단일 artifact (preprocessor + model + metadata)
-   파일 1개 + 설정 YAML 1개로 운영 가능. cron 등에서 `auto-ml-score` 호출.
+   파일 1개 + 설정 YAML 1개로 운영 가능. cron 등에서 `python inference/run_all.py` 호출.
 
 ## 입력 데이터
 
@@ -340,7 +351,7 @@ weight[i] = score[i] / sum(score[j] for all j)
 ### SHAP
 
 서브모델별 raw-margin SHAP 값의 가중 평균을 반환한다. 반환 shape 는 개별 모델과
-동일하게 `(n, n_features + 1)` 을 유지해 `auto-ml-explain` 과 완전히 호환된다.
+동일하게 `(n, n_features + 1)` 을 유지해 SHAP 해석(`auto_ml.explain`) 과 완전히 호환된다.
 
 ## ElasticNet 모델
 
@@ -364,7 +375,7 @@ models:
 - **범주형 처리** — 내부 `OneHotEncoder` 로 자동 처리. `handle_unknown="ignore"` 로
   스코어링 시 미학습 범주를 0-벡터로 안전하게 처리한다.
 - **SHAP** — `shap.LinearExplainer` 를 사용한다. OHE 확장된 SHAP 값을 원본 피처
-  공간으로 합산해 반환하므로 `auto-ml-explain` 과 완전히 호환된다.
+  공간으로 합산해 반환하므로 SHAP 해석(`auto_ml.explain`) 과 완전히 호환된다.
 - **Focal Loss** — 미지원. `loss: logloss` (기본값) 만 사용 가능.
 - **`early_stopping_rounds`** — 무시된다 (sklearn 에는 해당 개념이 없음).
 
@@ -567,9 +578,9 @@ training:
 - **artifact 자기기술** — 사용된 전략은 `artifacts/.../models/<name>.joblib` 메타데이터의
   `extra.training_mode` 에 기록된다 (`iteration_capping` 은 `iteration_cap`, `cv_bagging` 은
   `cv_bagging` 부가 정보 포함). `cv_bagging` 의 sub-artifact 는 K 개 fold 모델을 품은
-  `EnsembleModel` 1개라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+  `EnsembleModel` 1개라 그 자체로 스코어링 / SHAP 해석에 사용할 수 있다.
 
-## SHAP 해석 (auto-ml-explain)
+## SHAP 해석
 
 학습된 모형이 각 입력 행을 왜 그렇게 예측했는지 **건별·변수별 기여도** 를 산출한다.
 LGBM/XGB/CatBoost 는 native API (`pred_contrib` / `ShapValues`) 를 사용하고,
@@ -579,8 +590,8 @@ LGBM/XGB/CatBoost 는 native API (`pred_contrib` / `ShapValues`) 를 사용하�
 완전 호환.
 
 ```bash
-# 학습 후 같은 config 로 호출
-auto-ml-explain --config configs/example.yaml
+# 학습 후 같은 config 로 호출 (저장소 루트에서)
+python -m auto_ml.explain.runner --config configs/example.yaml
 ```
 
 ### 출력 스키마 (Wide)
@@ -626,35 +637,77 @@ explain:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e .
 ```
+
+패키지 설치(`pip install -e .`) 는 필요 없다. 의존 라이브러리만 설치하고
+저장소의 `.py` 파일을 직접 실행한다.
 
 WeasyPrint 는 시스템 폰트와 일부 라이브러리(libpango 등) 가 필요하다.
 폐쇄망에서는 wheelhouse + 시스템 패키지를 함께 배포한다.
 
 ## 사용
 
+모든 명령은 **저장소 루트에서** 실행한다 (YAML 의 상대 경로가 현재 디렉토리 기준).
+
+### 실행 샘플
+
+데이터 생성 → 학습 3단계 → 추론 3단계를 한 번에 돌려보는 샘플 (약 1분 이내, 산출물은 `artifacts/sample/`):
+
 ```bash
-# 1) 더미 데이터 생성 (검증용)
-python examples/make_dummy_data.py
-
-# 2) 학습 — 산출물:
-#    artifacts/models/best.joblib
-#    artifacts/reports/report.html, report.pdf
-#    artifacts/predictions/test_predictions.parquet  (id + score + prediction + target)
-auto-ml-train --config configs/example.yaml
-
-# 3) 스코어링 — 산출물:
-#    artifacts/scores/scores.parquet  (id_columns + score + prediction)
-auto-ml-score --config configs/example.yaml
-
-# 4) SHAP 해석 — 산출물:
-#    artifacts/explanations/shap.parquet
-#    (id_columns + shap_<feature>... + base_value + score, 확률 도메인)
-auto-ml-explain --config configs/example.yaml
+python examples/sample/run_sample.py            # --skip-data, --only train|inference 옵션
 ```
 
-코드에서 직접 호출하는 예시는 `examples/run_train.py`, `examples/run_score.py` 참고.
+설정은 `examples/sample/config.yaml`, 컬럼 정의는 `examples/sample/features.csv`.
+
+### 단계별 실행
+
+```bash
+# 0) 더미 데이터 생성 (검증용)
+python examples/make_dummy_data.py
+
+# 1) 학습 — 전처리 → 학습 → 후처리
+python train/preprocess.py  --config configs/example.yaml
+python train/train.py       --config configs/example.yaml
+python train/postprocess.py --config configs/example.yaml
+#   또는 한 번에: python train/run_all.py --config configs/example.yaml
+#   산출물:
+#     artifacts/models/best.joblib, artifacts/models/models/<name>.joblib
+#     artifacts/reports/report.html, report.pdf
+#     artifacts/predictions/test_predictions.parquet  (id + score + prediction + target)
+
+# 2) 추론 — 전처리 → 예측 → 후처리
+python inference/preprocess.py  --config configs/example.yaml
+python inference/predict.py     --config configs/example.yaml
+python inference/postprocess.py --config configs/example.yaml
+#   또는 한 번에: python inference/run_all.py --config configs/example.yaml
+#   산출물: artifacts/scores/scores.parquet  (id_columns + score + prediction)
+
+# 3) SHAP 해석 — 산출물:
+#    artifacts/explanations/shap.parquet
+#    (id_columns + shap_<feature>... + base_value + score, 확률 도메인)
+python -m auto_ml.explain.runner --config configs/example.yaml
+```
+
+### 단계 간 중간 산출물
+
+단계 스크립트는 다음 단계의 입력을 `work_dir` 에 저장한다. 기본 경로는
+`<artifact_dir 의 부모>/work/{train,inference}` 이고 `--work-dir` 로 바꿀 수 있다.
+
+| 단계 | 저장 파일 | 내용 |
+|---|---|---|
+| `train/preprocess.py` | `train_preprocessed.pkl.gz` | fit 된 전처리기, 변수 선택 결과, 전처리된 train/test |
+| `train/train.py` | `train_result.pkl.gz` | 모델별 학습 결과 (`TrainingResult`) |
+| `inference/preprocess.py` | `inference_preprocessed.pkl.gz` | 모델 입력 행렬, id 컬럼 |
+| `inference/predict.py` | `inference_predicted.pkl.gz` | 예측 확률, id 컬럼 |
+
+후처리 단계는 앞 단계 파일만 읽으므로, 예를 들어 리포트 설정만 바꿔
+`train/postprocess.py` 를 재실행하면 재학습 없이 리포트와 artifact 를 다시 만든다.
+단, 앞 단계 이후 데이터·전처리·모델 설정을 바꿨다면 해당 단계부터 다시 실행해야 한다.
+
+Python 코드에서 호출할 때는 `auto_ml.stages.train` / `auto_ml.stages.inference` 의
+`preprocess` / `train`(`predict`) / `postprocess` 함수, 또는 일괄 실행용
+`AutoMLPipeline(cfg).run()` / `auto_ml.scoring.runner.run_scoring(cfg)` 를 사용한다
+(저장소 루트가 `sys.path` 에 있어야 한다).
 
 ## 모형 후보 관리 (Best 변경)
 
@@ -671,7 +724,7 @@ artifact_dir/models/ensemble.joblib       ← 앙상블 후보 (enabled: true �
 
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본이다. 기본은
 `training.primary_metric` 기준 holdout 점수 최고 모형(앙상블 포함). 각 sub-artifact 는
-독립 번들이라 그 자체로 `auto-ml-score` / `auto-ml-explain` 호환이다.
+독립 번들이라 그 자체로 스코어링 / SHAP 해석에 사용할 수 있다.
 
 `ensemble.joblib` 은 모든 서브모델을 내부에 포함하므로, 이 파일 하나만으로
 앙상블 스코어링이 완전히 동작한다.
@@ -690,12 +743,12 @@ training:
 ### 학습 후 best 교체 (재학습 없이)
 
 ```bash
-auto-ml-set-best --config configs/example.yaml --model xgb
+python -m auto_ml.cli.set_best --config configs/example.yaml --model xgb
 # artifact_dir/models/xgb.joblib → artifact_dir/best.joblib 로 복사.
 # scoring / explain 이 즉시 새 모형 사용.
 
 # 앙상블을 best 로 승격:
-auto-ml-set-best --config configs/example.yaml --model ensemble
+python -m auto_ml.cli.set_best --config configs/example.yaml --model ensemble
 ```
 
 승격된 best 의 metadata.extra 에는 `promoted_at` / `promoted_from`(이전 best 모형명) 이
@@ -727,10 +780,10 @@ score distribution, 변수 선택 결과, 학습 설정/튜닝 요약을 담는�
 python examples/titanic/prepare_data.py
 
 # 학습 — 산출물: artifacts/titanic/{models,reports,logs}/...
-auto-ml-train --config examples/titanic/config.yaml
+python train/run_all.py --config examples/titanic/config.yaml
 
 # 스코어링 — 산출물: artifacts/titanic/scores/scores.parquet
-auto-ml-score --config examples/titanic/config.yaml
+python inference/run_all.py --config examples/titanic/config.yaml
 ```
 
 검증 시 약 10초 내외 (Optuna 10 trials × 3 모델 × 3 fold) 에 best 모델 ROC-AUC ≈ 0.86 을
@@ -741,8 +794,8 @@ auto-ml-score --config examples/titanic/config.yaml
 
 다음 4가지만 옮기면 된다:
 
-1. 패키지 wheel (`pip wheel -r requirements.txt -w wheelhouse/`)
-2. 본 repo 자체 (또는 `pip install -e .` 으로 wheel 생성)
+1. 의존 라이브러리 wheel (`pip wheel -r requirements.txt -w wheelhouse/`)
+2. 본 repo 자체 (`auto_ml/`, `train/`, `inference/` — 설치 불필요)
 3. 학습 산출물 `artifacts/models/best.joblib`
 4. 스코어링 설정 YAML
 
@@ -753,7 +806,10 @@ auto-ml-score --config examples/titanic/config.yaml
 
 ## 작업 로그
 
-실행마다 stage(`train` / `score`) 별 별도 로그 파일이 자동 생성된다.
+실행마다 stage 별 별도 로그 파일이 자동 생성된다. 단계 스크립트는
+`train_preprocess` / `train_train` / `train_postprocess` / `inference_preprocess` /
+`inference_predict` / `inference_postprocess`, `run_all.py` 는 `train` / `inference`,
+Python API(`AutoMLPipeline.run` / `run_scoring`) 는 `train` / `score` prefix 를 쓴다.
 
 ```
 artifacts/logs/

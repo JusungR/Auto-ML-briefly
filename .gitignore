@@ -3,3 +3,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+
+# 단계 간 중간 산출물 (train/*.py, inference/*.py 의 work_dir)
+artifacts/**/work/
+
+# 실행 샘플 (examples/sample/run_sample.py) 이 생성하는 데이터 / 산출물
+examples/sample/data/
+artifacts/sample/
