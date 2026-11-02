@@ -169,3 +169,18 @@ def test_warn_when_id_column_missing_from_input(tmp_path, tiny_binary_data):
         r.getMessage() for r in records if r.levelno == logging.WARNING
     )
     assert "missing_col" in warn_msgs
+
+
+def test_id_columns_comma_string_is_split():
+    """YAML 에 `id_columns: id1, id2, id3` 로 써도 리스트로 정규화된다."""
+    from auto_ml.config import AutoMLConfig
+
+    cfg = AutoMLConfig.from_dict({
+        "id_columns": "id1, id2, id3",
+        "scoring": {"id_columns": "a,b"},
+        "explain": {"id_columns": ["x", " y "]},
+    })
+    assert cfg.id_columns == ["id1", "id2", "id3"]
+    assert cfg.scoring.id_columns == ["a", "b"]
+    assert cfg.explain.id_columns == ["x", "y"]
+    assert AutoMLConfig.from_dict({"id_columns": None}).id_columns == []

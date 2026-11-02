@@ -24,6 +24,20 @@ from typing import Any
 import yaml
 
 
+def _normalize_id_columns(value: Any) -> list[str]:
+    """``id_columns`` 입력을 ``list[str]`` 로 정규화한다.
+
+    YAML 에서 ``id_columns: id1, id2, id3`` 처럼 쉼표 구분 문자열로 쓰면
+    리스트가 아닌 단일 문자열로 파싱되어 글자 단위로 쪼개지는 문제가 있어,
+    문자열은 쉼표로 분리하고 공백/빈 항목은 제거한다. None 은 빈 리스트.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = value.split(",")
+    return [str(v).strip() for v in value if str(v).strip()]
+
+
 @dataclass
 class FeatureSpec:
     """학습/스코어링에 사용할 단일 컬럼의 정의.
@@ -405,6 +419,9 @@ class ScoringConfig:
     id_columns: list[str] = field(default_factory=list)
     threshold: float = 0.5
 
+    def __post_init__(self) -> None:
+        self.id_columns = _normalize_id_columns(self.id_columns)
+
 
 @dataclass
 class ExplainConfig:
@@ -421,6 +438,9 @@ class ExplainConfig:
     input_path: str = "./data/score_input.parquet"
     output_path: str = "./artifacts/explanations/shap.parquet"
     id_columns: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.id_columns = _normalize_id_columns(self.id_columns)
 
 
 @dataclass
@@ -461,6 +481,9 @@ class AutoMLConfig:
     features: list[FeatureSpec] = field(default_factory=list)
     # 결과(스코어링 출력) 에 식별자로 보존할 컬럼. 학습/예측에는 사용되지 않는다.
     id_columns: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.id_columns = _normalize_id_columns(self.id_columns)
 
     # ----- 파생 헬퍼 -----------------------------------------------------
     @property
