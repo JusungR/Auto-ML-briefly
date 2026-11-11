@@ -220,6 +220,10 @@ python examples/sample/run_sample.py
 `configs/example.yaml` 과 더미 데이터로 각 단계를 직접 실행합니다. 모든 명령은 **저장소 루트에서**
 실행합니다 (YAML 의 상대 경로가 현재 디렉토리 기준이기 때문).
 
+`configs/example.yaml` 은 운영 수준 설정(모델 4종, 모델당 Optuna 30 trials)이라 5.1 샘플보다
+오래 걸립니다 — 4,000행 더미 데이터 기준 약 9분 (측정 환경 기준, 대부분 CatBoost 튜닝).
+빨리 확인만 하려면 `tuning.n_trials` 를 줄이세요.
+
 ```bash
 # 1) 더미 데이터 생성 — data/ 에 train/test/score_input parquet 생성
 python examples/make_dummy_data.py
@@ -250,6 +254,7 @@ artifacts/
 │       ├── lgbm.joblib
 │       ├── xgb.joblib
 │       ├── catboost.joblib
+│       ├── elasticnet.joblib
 │       └── ensemble.joblib      ← (앙상블이 생성된 경우 — §14)
 ├── predictions/
 │   └── test_predictions.parquet ← 학습 시 holdout 예측 (id + score + prediction + target)
@@ -1018,11 +1023,13 @@ ensemble:
 - `weighted_average` — 활성화된 모든 모델을 test `primary_metric` 점수에 비례하는 가중치로
   결합: `weight[i] = score[i] / sum(score)`.
 
-> **주의 — 기본값 그대로면 앙상블이 만들어지지 않습니다.** 기본 strategy 는
-> `elasticnet_plus_best` 인데 ElasticNet 은 기본 `enabled: false` 이고, `configs/example.yaml`
-> 에도 `elasticnet` 블록이 없습니다. 앙상블을 쓰려면 `models.elasticnet.enabled: true` 를
-> 추가하거나 `strategy: weighted_average` 로 바꾸세요. (`examples/credit/config.yaml`,
-> `examples/sample/config.yaml` 은 ElasticNet 을 켜 두었습니다.)
+> **주의 — YAML 에 `elasticnet` 블록이 없으면 앙상블이 만들어지지 않습니다.** 기본 strategy 는
+> `elasticnet_plus_best` 인데 ElasticNet 의 코드 기본값은 `enabled: false` 입니다. 이 경우
+> 학습은 계속되고 `Ensemble skipped — ...` WARNING 만 남습니다. 앙상블을 쓰려면
+> `models.elasticnet.enabled: true` 를 두거나 `strategy: weighted_average` 로 바꾸세요.
+> 저장소의 예시 설정(`configs/example.yaml`, `examples/credit/config.yaml`,
+> `examples/sample/config.yaml`)은 모두 ElasticNet 을 켜 두었습니다. 직접 만든 설정에서
+> `elasticnet` 블록을 지우면 이 경고가 나옵니다.
 
 **호환성**
 - 앙상블의 SHAP 은 서브모델 raw-margin SHAP 의 가중 평균을 반환하므로 SHAP 해석(`auto_ml.explain`) 과

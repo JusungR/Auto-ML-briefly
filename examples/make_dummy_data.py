@@ -12,8 +12,14 @@ import pandas as pd
 from sklearn.datasets import make_classification
 
 
-def _make_frame(n: int, rng: np.random.Generator, seed: int) -> pd.DataFrame:
-    """동일 분포의 n 행짜리 DataFrame 을 생성한다."""
+def _make_frame(n: int, seed: int = 42) -> pd.DataFrame:
+    """n 행짜리 DataFrame 을 한 번에 생성한다.
+
+    train / test / score 는 이 결과를 나눠 쓴다. make_classification 은
+    random_state 가 다르면 생성 규칙(어떤 변수가 어떤 방향으로 타깃과 관련되는지)
+    자체가 달라지므로, 파일별로 따로 생성하면 학습과 평가의 분포가 어긋난다.
+    """
+    rng = np.random.default_rng(seed)
     X, y = make_classification(
         n_samples=n,
         n_features=10,
@@ -26,7 +32,7 @@ def _make_frame(n: int, rng: np.random.Generator, seed: int) -> pd.DataFrame:
     df["gender"] = rng.choice(["M", "F"], size=n)
     # None 을 섞어 결측 처리 단계 동작도 검증
     df["device"] = rng.choice(["ios", "android", "web", None], size=n, p=[0.4, 0.4, 0.15, 0.05])
-    df["user_id"] = np.arange(n)
+    df["user_id"] = np.arange(n)          # 파일 간에도 겹치지 않는 식별자
     df["target"] = y.astype(int)
     return df
 
@@ -35,13 +41,11 @@ def main() -> None:
     out_dir = Path("./data")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    rng_train = np.random.default_rng(42)
-    rng_test = np.random.default_rng(43)
-    rng_score = np.random.default_rng(44)
-
-    df_train = _make_frame(n=4000, rng=rng_train, seed=42)
-    df_test = _make_frame(n=1000, rng=rng_test, seed=43)
-    df_score = _make_frame(n=1000, rng=rng_score, seed=44).drop(columns=["target"])
+    n_train, n_test, n_score = 4000, 1000, 1000
+    df = _make_frame(n=n_train + n_test + n_score)
+    df_train = df.iloc[:n_train]
+    df_test = df.iloc[n_train:n_train + n_test]
+    df_score = df.iloc[n_train + n_test:].drop(columns=["target"])
 
     df_train.to_parquet(out_dir / "train.parquet", index=False)
     df_test.to_parquet(out_dir / "test.parquet", index=False)

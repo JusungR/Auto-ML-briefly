@@ -358,12 +358,12 @@ ensemble:
 | `elasticnet_plus_best` (기본) | ElasticNet + 나머지 활성 모델 중 test `primary_metric` 1위 1개 | `elasticnet_weight` 지정 시 그 값, null 이면 두 모델 점수 비례 |
 | `weighted_average` | 활성 모델 전부 | 점수 비례: `weight[i] = score[i] / sum(score)` |
 
-**주의 — 기본값 조합에서는 앙상블이 만들어지지 않는다.** 기본 strategy 인
-`elasticnet_plus_best` 는 ElasticNet 이 켜져 있어야 하는데, ElasticNet 은 기본
-`enabled: false` 이고 `configs/example.yaml` 에도 `elasticnet` 블록이 없다. 이 경우
-학습은 계속되고 `Ensemble skipped — ...` WARNING 만 남는다. 앙상블을 쓰려면
-`models.elasticnet.enabled: true` 를 추가하거나 `strategy: weighted_average` 로 바꾼다.
-(`examples/credit/config.yaml`, `examples/sample/config.yaml` 은 ElasticNet 을 켜 두었다.)
+**주의 — YAML 에 `elasticnet` 블록이 없으면 앙상블이 만들어지지 않는다.** 기본 strategy 인
+`elasticnet_plus_best` 는 ElasticNet 이 켜져 있어야 하는데, ElasticNet 의 코드 기본값은
+`enabled: false` 다. 이 경우 학습은 계속되고 `Ensemble skipped — ...` WARNING 만 남는다.
+앙상블을 쓰려면 `models.elasticnet.enabled: true` 를 두거나 `strategy: weighted_average` 로
+바꾼다. 저장소의 예시 설정(`configs/example.yaml`, `examples/credit/config.yaml`,
+`examples/sample/config.yaml`)은 모두 ElasticNet 을 켜 두었다.
 
 ### 스코어링 시 동작
 
@@ -816,8 +816,9 @@ python train/run_all.py --config examples/titanic/config.yaml
 python inference/run_all.py --config examples/titanic/config.yaml
 ```
 
-Optuna 10 trials × 3 모델(LGBM·XGB·CatBoost) × 3 fold 설정으로 약 20초(환경에 따라
-다름)에 끝나며, best 모델(CatBoost) test ROC-AUC 는 약 0.85 이다 (2026-11 기준 재실행 0.8458). 폐쇄망에서는 `TITANIC_CSV` 환경변수에 사전 배포한 CSV 경로를 지정하면
+Optuna 10 trials × 4 모델(LGBM·XGB·CatBoost·ElasticNet) × 3 fold + 앙상블 설정으로
+10~20초 정도(환경에 따라 다름)에 끝나며, best 모델(CatBoost) test ROC-AUC 는 약 0.85 이다
+(2026-11 기준 재실행 0.8458). 폐쇄망에서는 `TITANIC_CSV` 환경변수에 사전 배포한 CSV 경로를 지정하면
 `prepare_data.py` 가 네트워크 없이 동일 산출물을 만든다.
 
 ## 폐쇄망 이관

@@ -229,8 +229,26 @@ models:
         low: 0.0
         high: 1.0
 
+  # 기본(코드) 값은 enabled: false. 아래 앙상블 기본 전략(elasticnet_plus_best)이
+  # ElasticNet 을 필요로 하므로 예시 설정에서는 켜 둔다. 끄면 앙상블은 생략된다
+  # (strategy: weighted_average 로 바꾸면 ElasticNet 없이도 앙상블 생성).
+  elasticnet:
+    enabled: true
+    fixed_params:
+      max_iter: 2000                          # 수렴 경고가 나면 늘린다
+    search_space:
+      C:                                      # 역규제 강도. 낮을수록 규제 강함
+        type: float
+        low: 1.0e-3
+        high: 10.0
+        log: true
+      l1_ratio:                               # 0 = Ridge(L2), 1 = Lasso(L1)
+        type: float
+        low: 0.0
+        high: 1.0
+
 # ==== 앙상블 ====================================================
-# strategy: elasticnet_plus_best — elasticnet + 나머지 best 모델 2개 결합 (기본)
+# strategy: elasticnet_plus_best — elasticnet + 나머지 활성 모델 중 best 1개 결합 (기본)
 #           weighted_average      — 활성화된 전체 모델의 점수 비례 가중 평균
 # elasticnet_weight: null 이면 점수 비례 자동 계산 (elasticnet_plus_best 에서만 사용)
 #                   0~1 사이 값으로 직접 지정 가능 (예: 0.35 → elasticnet 35%, best 65%)
