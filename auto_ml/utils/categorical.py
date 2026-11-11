@@ -55,14 +55,28 @@ def normalize_category_series(s: pd.Series) -> pd.Series:
         s = s.astype(object)
     if pd.api.types.is_bool_dtype(s):
         return s.map(_normalize_scalar).astype(object)
+    if pd.api.types.is_integer_dtype(s):
+        # 정수형(int64 / uint64 / nullable Int64) 은 float 을 거치지 않고 그대로 문자열로 바꾼다.
+        # float 을 거치면 2^53 보다 큰 코드의 정밀도가 깨져 서로 다른 코드가 합쳐진다.
+        out = np.full(len(s), np.nan, dtype=object)
+        notna = s.notna().to_numpy()
+        if notna.any():
+            out[notna] = s[notna].astype(str).to_numpy()
+        return pd.Series(out, index=s.index, name=s.name, dtype=object)
     if pd.api.types.is_numeric_dtype(s):
-        # 수치형은 벡터 연산으로 처리 (대용량 대비)
+        # 실수형은 벡터 연산으로 처리 (대용량 대비)
         vals = s.to_numpy(dtype=float, na_value=np.nan)
         out = np.full(len(vals), np.nan, dtype=object)
         notna = ~np.isnan(vals)
         integral = notna & (vals == np.floor(vals)) & np.isfinite(vals)
-        if integral.any():
-            out[integral] = vals[integral].astype(np.int64).astype(str)
+        # int64 범위 안은 벡터 변환, 밖(예: 1e20)은 오버플로를 피해 파이썬 int 로 변환
+        # (_normalize_scalar 의 str(int(v)) 와 같은 결과)
+        in_range = integral & (np.abs(vals) < 2.0**63)
+        if in_range.any():
+            out[in_range] = vals[in_range].astype(np.int64).astype(str)
+        huge = integral & ~in_range
+        if huge.any():
+            out[huge] = [str(int(v)) for v in vals[huge]]
         other = notna & ~integral
         if other.any():
             out[other] = [str(float(v)) for v in vals[other]]

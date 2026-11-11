@@ -147,3 +147,24 @@ def test_legacy_artifacts_keep_old_behavior(path):
         assert scorer.model._encoders  # LabelEncoder 경로
     out = scorer.score(pd.read_parquet(score_input).head(200))
     assert out["score"].between(0, 1).all()
+
+
+def test_normalize_large_integer_codes_are_exact():
+    """2^53 을 넘는 정수 코드도 타입(int64 / Int64 / object) 과 무관하게 같은 문자열."""
+    big = [9007199254740993, 9007199254740992, 12345678901234567]
+    expected = ["9007199254740993", "9007199254740992", "12345678901234567"]
+    assert list(normalize_category_series(pd.Series(big, dtype="int64"))) == expected
+    assert list(normalize_category_series(pd.Series(big + [None], dtype="Int64")))[:3] == expected
+    assert list(normalize_category_series(pd.Series(big + [None], dtype=object)))[:3] == expected
+    assert list(normalize_category_series(pd.Series([2**64 - 1], dtype="uint64"))) == [
+        "18446744073709551615"
+    ]
+
+
+def test_normalize_huge_float_does_not_overflow():
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)  # int64 오버플로 캐스트 경고도 실패로
+        out = list(normalize_category_series(pd.Series([1e20, 2e20, 1.0])))
+    assert out == ["100000000000000000000", "200000000000000000000", "1"]
