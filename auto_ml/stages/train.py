@@ -21,6 +21,7 @@ from auto_ml.feature_selection import SelectionResult, StabilitySelector
 from auto_ml.models.trainer import Trainer, TrainingResult
 from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting.report import ReportBuilder
+from auto_ml.utils.categorical import log_unseen_categories
 from auto_ml.utils.io import (
     ARTIFACT_FILENAME,
     ArtifactMetadata,
@@ -108,6 +109,7 @@ def preprocess(cfg: AutoMLConfig) -> TrainPreprocessed:
     )
     X_train_p = preprocessor.fit_transform(X_train)
     X_test_p = preprocessor.transform(X_test)
+    log_unseen_categories(preprocessor, X_test_p, logger, context="test")
 
     # 변수 선택을 끄면 selected_features = feature_columns 로 두어 이후 단계에서
     # 통일된 인터페이스(metadata.selected_features) 로 다룬다.

@@ -3,10 +3,15 @@
 본 파이프라인은 학습/스코어링 양 단계에서 동일하게 사용되며, 학습 시
 저장된 통계량을 스코어링 시 그대로 재사용해 일관성을 보장한다.
 
-범주형 컬럼은 본 파이프라인에서 결측 채움까지만 수행한다. 인코딩은
-모델 래퍼 내부에서 처리한다 — LightGBM/CatBoost 는 native 처리,
-XGBoost 는 LabelEncoder 적용. 이렇게 분리하면 단일 전처리 결과를
-3개 모델이 공통으로 받아 사용할 수 있다.
+범주형 컬럼은 본 파이프라인에서 값 정규화(``utils.categorical``) 와
+결측 채움까지만 수행한다. 정규화는 ``1`` / ``1.0`` / ``"1.0"`` 처럼 같은
+범주가 타입 차이로 갈라지는 것을 막기 위해 모든 값을 같은 규칙의 문자열로
+맞춘다. 인코딩은 모델 래퍼 내부에서 처리한다 — LightGBM/CatBoost/XGBoost 는
+native 처리, ElasticNet 은 One-hot. 이렇게 분리하면 단일 전처리 결과를
+모든 모델이 공통으로 받아 사용할 수 있다.
+
+학습 시 본 범주 목록을 보관해 추론 입력의 미학습 범주 비율을 진단한다
+(``unseen_category_stats``).
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ from auto_ml.preprocessing.imputer import NullImputer
 from auto_ml.preprocessing.outlier import OutlierHandler
 from auto_ml.preprocessing.scaler import NumericScaler
 from auto_ml.preprocessing.skew import SkewTransformer
+from auto_ml.utils.categorical import normalize_categories
 
 
 class PreprocessingPipeline:
@@ -72,6 +78,11 @@ class PreprocessingPipeline:
         # 범주형은 최빈값을 학습 시점에 산출해 보관한다.
         self._numeric_defaults: dict[str, float] = {}
         self._categorical_defaults: dict[str, Any] = {}
+        # 범주형 값 정규화 여부. 이 속성이 없는 과거 artifact 는 정규화 없이
+        # 학습됐으므로 getattr(..., False) 로 기존 동작을 유지한다.
+        self._normalize_categories = True
+        # 학습 데이터에서 본 범주 (정규화·결측 대체 후). 미학습 범주 진단용.
+        self._categorical_levels: dict[str, frozenset] = {}
         self._fitted = False
 
     def fit(self, df: pd.DataFrame) -> "PreprocessingPipeline":
@@ -82,8 +93,14 @@ class PreprocessingPipeline:
             (예: skew 측정은 이상치가 클립된 데이터에서, 스케일러는 skew
             변환된 데이터에서). 그래서 ``fit_transform`` 으로 순차 적용한다.
         """
+        df = self._normalize(df)
         self._fit_column_defaults(df)
         step1 = self.imputer.fit_transform(df)
+        self._categorical_levels = {
+            col: frozenset(step1[col].dropna().unique())
+            for col in self.categorical_columns
+            if col in step1.columns
+        }
         step2 = self.outlier.fit_transform(step1)
         step3 = self.skew.fit_transform(step2)
         self.scaler.fit(step3)
@@ -94,7 +111,8 @@ class PreprocessingPipeline:
         """학습 시 저장된 상태로 동일 순서의 변환을 수행한다."""
         if not self._fitted:
             raise RuntimeError("PreprocessingPipeline must be fit before transform.")
-        x = self.imputer.transform(df)
+        x = self._normalize(df)
+        x = self.imputer.transform(x)
         x = self.outlier.transform(x)
         x = self.skew.transform(x)
         x = self.scaler.transform(x)
@@ -103,6 +121,46 @@ class PreprocessingPipeline:
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """fit 직후 동일 데이터에 transform 을 적용해 반환한다."""
         return self.fit(df).transform(df)
+
+    # ------------------------------------------------------------------
+    def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
+        if not getattr(self, "_normalize_categories", False):
+            return df
+        return normalize_categories(df, self.categorical_columns)
+
+    # ------------------------------------------------------------------
+    def unseen_category_stats(
+        self, df: pd.DataFrame,
+    ) -> dict[str, dict[str, Any]]:
+        """``transform`` 결과에서 학습 때 없던 범주의 비율을 컬럼별로 반환한다.
+
+        Args:
+            df: ``transform`` 을 거친 DataFrame.
+
+        Returns:
+            ``{col: {"n_unseen", "n_rows", "rate", "examples"}}`` — 미학습 범주가
+            1건 이상인 컬럼만 포함. 범주 목록을 보관하지 않은 과거 artifact 는 빈 dict.
+        """
+        levels = getattr(self, "_categorical_levels", None) or {}
+        stats: dict[str, dict[str, Any]] = {}
+        n_rows = len(df)
+        if n_rows == 0:
+            return stats
+        for col, seen in levels.items():
+            if col not in df.columns:
+                continue
+            s = df[col]
+            mask = s.notna() & ~s.isin(seen)
+            n_unseen = int(mask.sum())
+            if n_unseen == 0:
+                continue
+            stats[col] = {
+                "n_unseen": n_unseen,
+                "n_rows": n_rows,
+                "rate": n_unseen / n_rows,
+                "examples": list(s[mask].value_counts().index[:5]),
+            }
+        return stats
 
     # ------------------------------------------------------------------
     def fill_missing_columns(

@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from auto_ml.utils.categorical import log_unseen_categories
 from auto_ml.utils.io import load_artifact
 from auto_ml.utils.logger import get_logger
 from auto_ml.utils.validation import validate_schema
@@ -102,6 +103,10 @@ class Scorer:
         # 옛 artifact (selected_features 가 비어있는 경우) 와의 호환을 위해 fallback.
         selected = list(getattr(self.metadata, "selected_features", []) or feature_cols)
         X_for_model = X_processed[selected]
+        # 학습 때 없던 범주 비율 진단 (모델 입력 컬럼만)
+        log_unseen_categories(
+            self.preprocessor, X_processed, logger, context="score_input", columns=selected,
+        )
 
         # ids 결정 — 호출자가 명시한 값이 비어 있지 않으면 그대로 사용,
         # 아니면(None 또는 빈 리스트) metadata 의 학습 시점 id_columns 로 fallback.

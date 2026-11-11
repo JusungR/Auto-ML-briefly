@@ -1,9 +1,13 @@
 """XGBoost 모델 래퍼.
 
-XGBoost 도 2.x 부터 ``enable_categorical=True`` 로 native 범주형 처리가
-가능하지만, 폐쇄망에서 버전이 더 낮을 가능성을 고려해 LabelEncoder 로
-범주형을 정수로 변환한 뒤 학습한다. 학습 시 fit 된 인코더를 보관해
-스코어링 시에도 동일 매핑을 적용한다.
+XGBoost 2.x 의 native 범주형 처리(``enable_categorical=True``) 를 사용한다.
+범주형 컬럼은 학습 때 본 범주 목록으로 고정한 pandas ``category`` 로 변환해
+넘기므로, 추론 입력의 범주 구성이 달라도 같은 코드가 유지되고 학습 때 없던
+범주는 결측(NaN) 으로 처리된다. 범주 사이에 순서를 가정하지 않는다
+(partition 기반 분할).
+
+과거 버전은 LabelEncoder 로 정수 코드를 만들어 수치처럼 분할했다. 그 방식으로
+학습된 artifact 는 ``_encoders`` 를 가지고 있으므로 같은 방식으로 예측한다.
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from auto_ml.models.base import BaseModel
 from auto_ml.models.losses import xgb_focal_objective
+from auto_ml.utils.categorical import normalize_category_series
 
 
 class XGBModel(BaseModel):
@@ -36,9 +41,8 @@ class XGBModel(BaseModel):
         "n_estimators": 2000,
     }
 
-    # 학습 시 학습된 컬럼별 LabelEncoder (스코어링 시 재사용)
+    # (과거 artifact 전용) LabelEncoder 방식의 컬럼별 인코더와 unseen 코드
     _encoders: dict[str, LabelEncoder]
-    # 미등록 카테고리(unseen) 매핑용 — 안전하게 -1 로 치환
     UNKNOWN_CATEGORY_CODE: int = -1
 
     def __init__(
@@ -55,6 +59,8 @@ class XGBModel(BaseModel):
             loss=loss,
         )
         self._encoders = {}
+        # 학습 때 본 범주 목록 (컬럼 → 정렬된 문자열 리스트). native 범주형 경로.
+        self._categories: dict[str, list[str]] | None = None
 
     def _resolved_params(self) -> dict[str, Any]:
         """기본값 ⊕ 사용자 지정값 ⊕ 시드. ``self.loss == "focal"`` 분기 포함.
@@ -79,6 +85,36 @@ class XGBModel(BaseModel):
             self._focal_active = False
         return merged
 
+    # ------------------------------------------------------------------
+    # native 범주형 (현재 방식)
+    # ------------------------------------------------------------------
+    def _fit_categories(self, X: pd.DataFrame) -> None:
+        self._categories = {}
+        for col in self.categorical_columns:
+            if col not in X.columns:
+                continue
+            values = normalize_category_series(X[col]).dropna().unique()
+            self._categories[col] = sorted(str(v) for v in values)
+
+    def _to_model_input(self, X: pd.DataFrame) -> pd.DataFrame:
+        """모델 입력 변환. 범주형은 학습 범주로 고정한 category dtype (unseen → NaN).
+
+        과거 LabelEncoder 방식 artifact 는 기존 정수 매핑을 그대로 적용한다.
+        """
+        if getattr(self, "_categories", None) is None:
+            return self._encode_transform(X)
+        out = X.copy()
+        for col, cats in self._categories.items():
+            if col not in out.columns:
+                continue
+            out[col] = pd.Categorical(
+                normalize_category_series(out[col]), categories=cats,
+            )
+        return out
+
+    # ------------------------------------------------------------------
+    # LabelEncoder (과거 artifact 호환용)
+    # ------------------------------------------------------------------
     def _encode_fit(self, X: pd.DataFrame) -> pd.DataFrame:
         """범주형 컬럼에 LabelEncoder 를 fit 하고 정수로 변환한다."""
         out = X.copy()
@@ -115,15 +151,17 @@ class XGBModel(BaseModel):
         params = self._resolved_params()
         n_estimators = params.pop("n_estimators", 2000)
 
-        X_tr = self._encode_fit(X_train)
+        self._fit_categories(X_train)
+        X_tr = self._to_model_input(X_train)
         eval_set = None
         if X_valid is not None and y_valid is not None:
-            eval_set = [(self._encode_transform(X_valid), y_valid)]
+            eval_set = [(self._to_model_input(X_valid), y_valid)]
 
         # XGBoost 2.x 의 sklearn API: early_stopping_rounds 는 생성자 인자
         self.model = xgb.XGBClassifier(
             n_estimators=n_estimators,
             early_stopping_rounds=early_stopping_rounds if eval_set else None,
+            enable_categorical=True,
             **params,
         )
         self.model.fit(X_tr, y_train, eval_set=eval_set, verbose=False)
@@ -131,7 +169,7 @@ class XGBModel(BaseModel):
         return self
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        X_in = self._encode_transform(X[self.feature_columns])
+        X_in = self._to_model_input(X[self.feature_columns])
         return self.model.predict_proba(X_in)[:, 1]
 
     def feature_importance(self) -> dict[str, float]:
@@ -144,7 +182,11 @@ class XGBModel(BaseModel):
     def shap_values(self, X: pd.DataFrame) -> np.ndarray:
         # Booster.predict(pred_contribs=True) 는 (n, n_features + 1) 반환.
         # 마지막 열은 bias term (= base value, raw-margin 도메인).
-        X_in = self._encode_transform(X[self.feature_columns])
-        dmat = xgb.DMatrix(X_in.values, feature_names=list(X_in.columns))
+        X_in = self._to_model_input(X[self.feature_columns])
+        if getattr(self, "_categories", None) is None:
+            # 과거 artifact: 정수 인코딩 행렬
+            dmat = xgb.DMatrix(X_in.values, feature_names=list(X_in.columns))
+        else:
+            dmat = xgb.DMatrix(X_in, enable_categorical=True)
         contrib = self.model.get_booster().predict(dmat, pred_contribs=True)
         return np.asarray(contrib)
