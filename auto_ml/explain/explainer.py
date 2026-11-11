@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from auto_ml.utils.categorical import log_unseen_categories
 from auto_ml.utils.io import load_artifact
 from auto_ml.utils.logger import get_logger
 from auto_ml.utils.validation import validate_schema
@@ -90,6 +91,9 @@ class Explainer:
         X_processed = self.preprocessor.transform(X)
         selected = list(getattr(self.metadata, "selected_features", []) or feature_cols)
         X_for_model = X_processed[selected]
+        log_unseen_categories(
+            self.preprocessor, X_processed, logger, context="explain_input", columns=selected,
+        )
 
         # raw-margin SHAP — shape (n, n_features + 1), 마지막 열 = base value
         shap_raw = np.asarray(self.model.shap_values(X_for_model))

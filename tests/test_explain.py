@@ -60,8 +60,8 @@ def test_shap_values_shape_and_raw_additivity(tiny_binary_data, model_cls):
         raw = m.model.predict(X_in, raw_score=True)
         tol = 1e-10
     elif model_cls is XGBModel:
-        X_in = m._encode_transform(X[m.feature_columns])
-        dmat = xgb.DMatrix(X_in.values, feature_names=list(X_in.columns))
+        X_in = m._to_model_input(X[m.feature_columns])
+        dmat = xgb.DMatrix(X_in, enable_categorical=True)
         raw = m.model.get_booster().predict(dmat, output_margin=True)
         tol = 1e-4   # XGBoost DMatrix 는 float32 — 수치 오차 더 큼
     else:  # CatBoostModel

@@ -73,6 +73,7 @@ outputs = AutoMLPipeline(load_config("configs/example.yaml")).run()
 `AutoMLConfig` is a top-level dataclass containing nested sub-configs for every pipeline stage. `load_config(path)` reads a YAML file and a companion features CSV.
 
 - **Features CSV** (`features_csv`): columns `name`, `type` (`continuous`/`category`), `used` (`true`/`false`). Only `used == true` rows become features. Internally, `continuous` → `"numeric"` and `category` → `"categorical"`.
+- **Categoricals**: `PreprocessingPipeline` normalizes categorical values to strings (`auto_ml/utils/categorical.py`: `1`/`1.0` → `"1"`) before imputation and records training levels for unseen-category logging. Encoding is per model: LGBM `category` dtype, XGB native `enable_categorical` with fixed training categories, CatBoost `cat_features`, ElasticNet one-hot. Artifacts trained before this lack `_normalize_categories` / XGB `_categories` and keep the legacy path (no normalization, XGB LabelEncoder).
 - All YAML keys map 1:1 to dataclass fields in `config.py`.
 
 ### Models (`auto_ml/models/`)

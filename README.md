@@ -67,7 +67,7 @@ internal_score,continuous,false
 
 - `type`
   - `continuous` — 연속형 (int / float). 결측·이상치·skew 변환·스케일링 적용.
-  - `category`   — 범주형 (문자열 / 코드). 모델 래퍼에서 자체 인코딩 처리.
+  - `category`   — 범주형 (문자열 / 코드). 전처리에서 값 정규화 + 결측 대체, 인코딩은 모델 래퍼에서 처리.
 - `used`
   - `true` 인 행만 학습/스코어링에 사용된다 (`false`/공백 → 제외).
   - 운영 중 컬럼을 켜고 끌 때 코드 변경 없이 본 CSV 만 수정하면 된다.
@@ -98,6 +98,19 @@ preprocessing:
 - 별도로 `PreprocessingPipeline.fill_missing_columns(df)` 가 스코어링 시
   **컬럼 자체가 통째로 누락**된 케이스에 대비해 학습 시 산출한 기본값
   (수치형 median, 범주형 최빈값) 으로 채워준다. 부분 NaN 은 imputer 가 처리.
+
+### 범주형 값 정규화
+
+결측 대체 전에 범주형 값을 같은 규칙의 문자열로 맞춘다 (`auto_ml/utils/categorical.py`).
+`1` / `1.0` / `"1"` 은 모두 `"1"`, `1.5` 는 `"1.5"`, bool 은 `"True"`/`"False"`, 문자열은
+그대로 둔다. 학습 데이터에 결측이 있어 정수 코드 컬럼이 float 로 읽히고 추론 데이터가 int 로
+들어오는 경우에도 같은 범주로 인식된다.
+
+학습 때 본 범주 목록을 전처리기에 보관하고, 추론·SHAP·test 데이터에서 학습 때 없던 범주가
+나오면 컬럼별 비율을 로그로 남긴다 (1% 이상 WARNING, 미만 INFO).
+
+이 정규화 이전에 학습된 artifact 는 기존 방식(정규화 없음, XGBoost 는 LabelEncoder)
+그대로 동작하므로 재학습 전까지 결과가 바뀌지 않는다.
 
 ## 이상치 처리 (백분위수 윈저라이징)
 
@@ -292,7 +305,7 @@ HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 �
 | 모델 | 범주형 처리 | early_stopping | Focal Loss | 비고 |
 |---|---|---|---|---|
 | `LGBMModel` | pandas `category` dtype native | `callbacks=[early_stopping(rounds)]` | O | 가장 빠름 |
-| `XGBModel` | 컬럼별 `LabelEncoder` (`_encoders` 보관) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | O | 폐쇄망 호환을 위해 native cat 대신 LabelEncoder 사용 |
+| `XGBModel` | native (`enable_categorical=True`, 학습 범주로 고정한 `category` dtype, unseen → 결측) | 생성자 인자 `early_stopping_rounds` (XGB 2.x sklearn API) | O | 과거 LabelEncoder artifact 는 기존 방식으로 예측 |
 | `CatBoostModel` | native (`cat_features` 인덱스 전달) | 학습 인자 `early_stopping_rounds` | O (`PythonUserDefinedObjective`) | `allow_writing_files: false` 권장 |
 | `ElasticNetModel` | 내부 `OneHotEncoder` (학습 시 fit → 스코어링 재사용, `handle_unknown="ignore"`) | 해당 없음 (무시) | X | sklearn SAGA 기반 L1+L2 규제 선형 모델. SHAP 에 `shap.LinearExplainer` 사용 |
 | `EnsembleModel` | 서브모델에 위임 | 해당 없음 (no-op) | X | Trainer 가 자동 생성. 레지스트리 미등록 (이름+파라미터만으로 생성 불가) |
