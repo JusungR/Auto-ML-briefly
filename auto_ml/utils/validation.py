@@ -15,9 +15,17 @@ def validate_binary_target(y: pd.Series) -> None:
         y: 타깃 시리즈.
 
     Raises:
-        ValueError: 0/1 외 값이 존재하거나 단일 클래스만 있는 경우.
+        ValueError: 결측이 있거나, 0/1 외 값이 존재하거나, 단일 클래스만 있는 경우.
     """
-    unique = set(pd.unique(y.dropna()))
+    n_missing = int(y.isna().sum())
+    if n_missing:
+        # 결측을 빼고 검사하면 통과한 뒤 int 변환에서 알아보기 힘든 에러로 실패한다.
+        name = f"'{y.name}' " if y.name is not None else ""
+        raise ValueError(
+            f"Target column {name}has {n_missing} missing value(s) out of {len(y)} rows. "
+            "Remove or fill those rows before training."
+        )
+    unique = set(pd.unique(y))
     if not unique.issubset({0, 1}):
         raise ValueError(
             f"Target must be binary (0/1). Found unique values: {sorted(unique)}"

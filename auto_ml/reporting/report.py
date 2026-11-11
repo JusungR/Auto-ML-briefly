@@ -77,9 +77,9 @@ class ReportBuilder:
 
         if self.config.reporting.generate_pdf:
             pdf_path = out_dir / "report.pdf"
-            self._html_to_pdf(html_str, pdf_path)
-            outputs["pdf"] = pdf_path
-            logger.info("PDF report written: %s", pdf_path)
+            if self._try_html_to_pdf(html_str, pdf_path):
+                outputs["pdf"] = pdf_path
+                logger.info("PDF report written: %s", pdf_path)
 
         # CSV — 표/차트가 잘린 경우에도 외부에서 전체 분포를 확인할 수 있도록 항상 저장.
         imp_csv = out_dir / "feature_importance.csv"
@@ -350,6 +350,27 @@ class ReportBuilder:
             summary["training.iteration_cap_headroom"] = tr.iteration_cap_headroom
         return summary
 
+    def _try_html_to_pdf(self, html_str: str, pdf_path: Path) -> bool:
+        """PDF 변환을 시도하고 성공 여부를 반환한다.
+
+        WeasyPrint 나 시스템 라이브러리(libpango 등) 가 없으면 import/OSError 가 난다.
+        PDF 는 부가 산출물이므로 실패해도 학습을 중단하지 않고 WARNING 만 남긴다.
+        첫 실패 이후에는 같은 원인으로 반복 실패하므로 남은 PDF 는 건너뛴다.
+        """
+        if getattr(self, "_pdf_unavailable", False):
+            return False
+        try:
+            self._html_to_pdf(html_str, pdf_path)
+            return True
+        except Exception as exc:  # ImportError, OSError(라이브러리 누락) 등
+            self._pdf_unavailable = True
+            logger.warning(
+                "PDF report skipped (%s: %s). HTML/CSV are still written. "
+                "Install WeasyPrint system dependencies or set reporting.generate_pdf: false.",
+                type(exc).__name__, str(exc).splitlines()[0] if str(exc) else "",
+            )
+            return False
+
     @staticmethod
     def _html_to_pdf(html_str: str, pdf_path: Path) -> None:
         """동일 HTML 을 PDF 로 변환한다 (WeasyPrint).
@@ -452,9 +473,9 @@ class ReportBuilder:
             logger.info("Sub-report HTML written: %s", html_path)
         if self.config.reporting.generate_pdf:
             pdf_path = sub_dir / "report.pdf"
-            self._html_to_pdf(html_str, pdf_path)
-            out["pdf"] = pdf_path
-            logger.info("Sub-report PDF written: %s", pdf_path)
+            if self._try_html_to_pdf(html_str, pdf_path):
+                out["pdf"] = pdf_path
+                logger.info("Sub-report PDF written: %s", pdf_path)
 
         imp_csv = sub_dir / "feature_importance.csv"
         self._write_csv(

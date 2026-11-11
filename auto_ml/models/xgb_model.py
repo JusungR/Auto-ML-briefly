@@ -165,8 +165,22 @@ class XGBModel(BaseModel):
             **params,
         )
         self.model.fit(X_tr, y_train, eval_set=eval_set, verbose=False)
-        self.best_iteration = getattr(self.model, "best_iteration", None)
+        # XGBoost 의 best_iteration 은 0부터 세는 번호 → 트리 개수로 변환 (조기 종료 미발동 시 None)
+        best_idx = self._booster_best_index()
+        self.best_iteration = None if best_idx is None else best_idx + 1
         return self
+
+    def _booster_best_index(self) -> int | None:
+        """조기 종료가 동작했으면 best 지점의 0부터 세는 번호, 아니면 None.
+
+        래퍼의 ``best_iteration`` 이 아니라 학습된 XGBoost 객체에서 직접 읽으므로
+        (번호 체계가 달랐던) 과거 artifact 에도 그대로 맞다.
+        """
+        try:
+            idx = self.model.best_iteration
+        except AttributeError:
+            return None
+        return None if idx is None else int(idx)
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         X_in = self._to_model_input(X[self.feature_columns])
@@ -188,5 +202,12 @@ class XGBModel(BaseModel):
             dmat = xgb.DMatrix(X_in.values, feature_names=list(X_in.columns))
         else:
             dmat = xgb.DMatrix(X_in, enable_categorical=True)
-        contrib = self.model.get_booster().predict(dmat, pred_contribs=True)
+        # predict_proba(sklearn API) 는 조기 종료 시 best 지점까지의 트리만 쓴다.
+        # SHAP 도 같은 범위로 계산해야 합이 실제 예측과 일치한다 (지정하지 않으면
+        # best 이후 early_stopping_rounds 만큼의 트리까지 포함된다).
+        best_idx = self._booster_best_index()
+        iteration_range = (0, 0) if best_idx is None else (0, best_idx + 1)
+        contrib = self.model.get_booster().predict(
+            dmat, pred_contribs=True, iteration_range=iteration_range,
+        )
         return np.asarray(contrib)

@@ -81,7 +81,9 @@ class CatBoostModel(BaseModel):
 
         self.model = CatBoostClassifier(**params)
         self.model.fit(train_pool, eval_set=eval_pool, use_best_model=eval_pool is not None)
-        self.best_iteration = self.model.get_best_iteration()
+        # get_best_iteration() 은 0부터 세는 번호 → 트리 개수로 변환 (eval set 없으면 None)
+        best_idx = self.model.get_best_iteration()
+        self.best_iteration = None if best_idx is None else int(best_idx) + 1
         return self
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:

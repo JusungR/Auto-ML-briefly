@@ -183,24 +183,15 @@ def postprocess(
     prep: TrainPreprocessed,
     result: TrainingResult,
 ) -> dict[str, Path]:
-    """리포트 생성 → artifact 저장 → test 예측 export.
+    """artifact 저장 → test 예측 export → 리포트 생성.
+
+    artifact 를 가장 먼저 저장한다. 리포트 단계에서 오류가 나도 (긴 튜닝·학습의 결과인)
+    모델은 남아 있어 ``train/postprocess.py`` 재실행이나 스코어링이 가능하다.
 
     Returns:
         산출물 이름 → 경로 dict (비활성 산출물은 키 누락).
     """
     outputs: dict[str, Path] = {}
-
-    # 리포트 ------------------------------------------------------------
-    logger.info("Step 4/4: report generation")
-    report_paths = ReportBuilder(cfg).build(result, selection=prep.selection)
-    for src, dst in (
-        ("html", "report_html"),
-        ("pdf", "report_pdf"),
-        ("feature_importance_csv", "feature_importance_csv"),
-        ("feature_selection_csv", "feature_selection_csv"),
-    ):
-        if src in report_paths:
-            outputs[dst] = report_paths[src]
 
     # artifact 저장 -----------------------------------------------------
     # 모든 모형을 sub-artifact (artifact_dir/models/<name>.joblib) 로 독립 저장한 뒤,
@@ -306,6 +297,19 @@ def postprocess(
         "Wrote test predictions: %s (rows=%d, id_cols=%s)",
         predictions_path, len(pred_df), keep_id_cols or "(none)",
     )
+
+    # 리포트 ------------------------------------------------------------
+    # (PDF 변환 실패는 ReportBuilder 안에서 WARNING 처리되어 학습을 중단하지 않는다)
+    logger.info("Step 4/4: report generation")
+    report_paths = ReportBuilder(cfg).build(result, selection=prep.selection)
+    for src, dst in (
+        ("html", "report_html"),
+        ("pdf", "report_pdf"),
+        ("feature_importance_csv", "feature_importance_csv"),
+        ("feature_selection_csv", "feature_selection_csv"),
+    ):
+        if src in report_paths:
+            outputs[dst] = report_paths[src]
 
     logger.info(
         "Best model: %s, %s=%.4f",

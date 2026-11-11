@@ -1073,8 +1073,10 @@ reporting:
 
 ### 동작 메모
 
-- WeasyPrint 시스템 의존성이 없으면 PDF 생성에 실패합니다 — `generate_pdf: false` 로 명시적으로
-  끄거나 §3 의 시스템 패키지를 설치하세요. PDF 실패해도 HTML 은 정상 생성됩니다.
+- WeasyPrint 시스템 의존성이 없으면 PDF 생성에 실패합니다. 이때 학습은 중단되지 않습니다 —
+  모델(`best.joblib` 등)은 리포트보다 먼저 저장되고, HTML·CSV 도 정상 생성되며, 로그에
+  `PDF report skipped` WARNING 이 한 번 남습니다. PDF 가 필요 없으면 `generate_pdf: false` 로
+  끄고, 필요하면 §3 의 시스템 패키지를 설치하세요.
 - 부속 CSV (`feature_importance.csv`, `feature_selection.csv`) 는 **항상 전체 변수**를
   저장합니다 (`top_*` 옵션은 HTML 표시에만 영향).
 - best 가 아닌 모형마다 별도 sub-report 가 자동 생성됩니다 (`output_dir/sub/<name>/report.{html,pdf}`).

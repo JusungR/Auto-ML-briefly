@@ -601,6 +601,9 @@ training:
   (bagging)이 되므로 그 위의 점수 비례 앙상블은 **자동 비활성화**되고 WARN 로그가 남는다.
 - **best_iter 미발동 fold** — early stopping 이 발동하지 않은 fold 는 `n_estimators`/`iterations`
   설정값을 fallback 으로 사용해 집계가 0 방향으로 끌려가지 않게 한다.
+- **best_iter 의 의미** — 세 부스팅 모델 모두 "best 지점까지의 트리 개수" 로 통일되어 있다
+  (라이브러리 원래 값은 LightGBM 만 개수, XGBoost·CatBoost 는 0부터 세는 번호). 이 통일 이전에
+  학습된 artifact 메타데이터·리포트의 XGBoost/CatBoost `best_iter` 는 1 작게 표시돼 있다.
 - **artifact 자기기술** — 사용된 전략은 `artifacts/.../models/<name>.joblib` 메타데이터의
   `extra.training_mode` 에 기록된다 (`iteration_capping` 은 `iteration_cap`, `cv_bagging` 은
   `cv_bagging` 부가 정보 포함). `cv_bagging` 의 sub-artifact 는 K 개 fold 모델을 품은

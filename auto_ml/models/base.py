@@ -53,6 +53,9 @@ class BaseModel(ABC):
         # 학습 후 채워질 멤버
         self.model: Any = None
         self.feature_columns: list[str] = []
+        # best 지점까지의 트리 개수 (1부터 세는 개수). 조기 종료가 동작하지 않았거나
+        # 부스팅 모델이 아니면 None. 라이브러리마다 원래 의미가 달라(LightGBM 은 개수,
+        # XGBoost·CatBoost 는 0부터 세는 번호, LightGBM 은 미발동 시 0) 래퍼에서 통일한다.
         self.best_iteration: int | None = None
         # focal 활성 여부 — predict_proba 의 후처리 (sigmoid) 분기에 사용
         self._focal_active: bool = False

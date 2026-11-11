@@ -102,8 +102,8 @@ class LGBMModel(BaseModel):
             callbacks=callbacks,
             categorical_feature=self.categorical_columns or "auto",
         )
-        # 조기종료가 동작했다면 best_iteration_ 가 설정된다.
-        self.best_iteration = getattr(self.model, "best_iteration_", None)
+        # best_iteration_ 은 트리 개수(1부터). 조기 종료가 동작하지 않으면 0 이므로 None 으로 맞춘다.
+        self.best_iteration = getattr(self.model, "best_iteration_", None) or None
         # LightGBM 은 leaf-wise 성장이라 max_depth 파라미터가 실제 깊이를 보장하지 않는다.
         # 학습 완료 후 실제 트리 구조에서 최대 깊이를 계산한다.
         tree_df = self.model.booster_.trees_to_dataframe()
