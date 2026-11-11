@@ -276,3 +276,35 @@ def test_best_metadata_matches_sub_artifact(tmp_path, tiny_binary_data, strategy
     promoted = load_artifact(tmp_path / "artifacts/models/best.joblib")["metadata"].extra
     assert promoted["best_selection"] == "promoted"
     assert set(promoted) == set(best_extra) | {"best_selection", "promoted_at", "promoted_from"}
+
+
+# ───────────────────────────────────────────────────────────────────────
+# 앙상블 feature importance — 단위가 다른 서브모델은 비율로 맞춘 뒤 가중합
+# ───────────────────────────────────────────────────────────────────────
+
+def test_mixed_ensemble_importance_share_follows_weights(tiny_binary_data):
+    ens, _ = _fitted_ensemble(tiny_binary_data)  # lgbm(gain) 0.6 + elasticnet(|coef|) 0.4
+    combined = ens.feature_importance()
+    assert sum(combined.values()) == pytest.approx(1.0)
+    for name, model in ens.base_models.items():
+        imp = model.feature_importance()
+        total = sum(abs(v) for v in imp.values())
+        share = sum(ens.weights[name] * v / total for v in imp.values())
+        assert share == pytest.approx(ens.weights[name])  # 단위가 아니라 가중치대로 기여
+
+
+def test_same_kind_ensemble_importance_keeps_raw_scale(tiny_binary_data):
+    from auto_ml.models.ensemble_model import EnsembleModel
+
+    X, y = tiny_binary_data
+    folds = [
+        LGBMModel(params={"n_estimators": 30, "verbose": -1, "seed": s},
+                  categorical_columns=["cat1"]).fit(X.iloc[s * 50:], y.iloc[s * 50:])
+        for s in range(3)
+    ]
+    ens = EnsembleModel.from_cv_folds("lgbm", folds)
+    expected: dict[str, float] = {}
+    for m in folds:
+        for feat, val in m.feature_importance().items():
+            expected[feat] = expected.get(feat, 0.0) + val / 3
+    assert ens.feature_importance() == pytest.approx(expected)  # cv_bagging 출력은 이전과 동일

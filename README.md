@@ -382,6 +382,14 @@ fold 평균 모델도 같은 방식이다.
 (logit 도메인 SHAP 을 평균하는 `shap_values()` 도 남아 있지만, 그 합에 sigmoid 를 씌운 값은
 확률 평균 예측과 다르므로 해석에는 쓰지 않는다.)
 
+### Feature importance
+
+서브모델마다 중요도 단위가 다르다 (LightGBM/XGBoost gain 은 수천 이상, CatBoost 는 합 100,
+ElasticNet 은 |계수|). 그대로 가중합하면 단위가 큰 모델이 사실상 전부를 차지하므로, 서로 다른
+종류가 섞인 앙상블은 각 서브모델 중요도를 합 1 인 비율로 바꾼 뒤 앙상블 가중치로 합산한다
+(결과도 합 1 — 리포트 CSV 의 `importance_gain` 컬럼이 이 비율 값이 된다). 같은 종류만 있는
+`cv_bagging` fold 앙상블은 원래 단위(gain 등)의 평균을 그대로 쓴다.
+
 ## ElasticNet 모델
 
 sklearn `LogisticRegression(solver='saga')` 기반 L1+L2 혼합 규제 선형 모델.

@@ -153,12 +153,31 @@ class EnsembleModel(BaseModel):
         return proba
 
     def feature_importance(self) -> dict[str, float]:
-        """서브모델 feature importance 의 가중 평균."""
+        """서브모델 feature importance 의 가중 평균.
+
+        서브모델마다 중요도 단위가 다르다 (LightGBM/XGBoost gain 은 수천 이상,
+        CatBoost 는 합 100, ElasticNet 은 |계수| ~1). 그대로 가중합하면 큰 단위 모델이
+        사실상 전부를 차지하므로, 서로 다른 종류가 섞이면 각 서브모델 중요도를 합이 1 인
+        비율로 바꾼 뒤 가중합한다 (결과도 합 1). 같은 종류만 있으면 (cv_bagging 의
+        fold 모델들) 단위가 같으므로 원래 값의 가중 평균을 유지한다.
+        """
+        per_model = {name: model.feature_importance() for name, model in self.base_models.items()}
+        mixed_kinds = len({type(m) for m in self.base_models.values()}) > 1
+
         combined: dict[str, float] = {}
-        for name, model in self.base_models.items():
+        for name, imp in per_model.items():
             w = self.weights[name]
-            for feat, val in model.feature_importance().items():
+            if mixed_kinds:
+                total = float(sum(abs(v) for v in imp.values()))
+                if total <= 0:
+                    continue  # 정보 없는 서브모델은 기여 0
+                imp = {feat: val / total for feat, val in imp.items()}
+            for feat, val in imp.items():
                 combined[feat] = combined.get(feat, 0.0) + w * val
+        # 모든 피처 키를 유지 (기여 0 인 피처 포함)
+        for imp in per_model.values():
+            for feat in imp:
+                combined.setdefault(feat, 0.0)
         return combined
 
     def shap_values_proba(self, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
