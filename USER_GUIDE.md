@@ -1240,7 +1240,10 @@ python -m auto_ml.cli.set_best --config configs/my_config.yaml --model xgb
 python -m auto_ml.cli.set_best --config configs/my_config.yaml --model ensemble
 ```
 
-승격된 best 의 metadata 에는 `promoted_at` / `promoted_from` (이전 best 이름) 이 기록됩니다.
+`best.joblib` 의 메타데이터는 해당 후보 파일의 메타데이터와 같고, `extra.best_selection` 에 선정
+경위가 추가됩니다 — `auto_by_metric`(자동 선정) / `user_override`(`training.best_model` 지정) /
+`promoted`(set_best 로 교체). 승격된 경우 `promoted_at` / `promoted_from`(이전 best 이름) 도
+기록됩니다.
 
 ---
 

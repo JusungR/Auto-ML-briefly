@@ -241,3 +241,38 @@ def test_stale_sub_artifacts_and_reports_are_archived(tmp_path, tiny_binary_data
     n_archives = len(list((sub / "_previous").iterdir()))
     AutoMLPipeline(cfg).run()
     assert len(list((sub / "_previous").iterdir())) == n_archives
+
+
+# ───────────────────────────────────────────────────────────────────────
+# best.joblib 메타데이터 = sub-artifact 메타데이터 + best_selection
+# ───────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("strategy", ["iteration_capping", "cv_bagging"])
+def test_best_metadata_matches_sub_artifact(tmp_path, tiny_binary_data, strategy):
+    from dataclasses import asdict
+
+    from auto_ml.cli.set_best import promote
+    from auto_ml.utils.io import load_artifact
+
+    cfg = _pipeline_config(tmp_path, tiny_binary_data, final_fit_strategy=strategy)
+    cfg.reporting.generate_pdf = False
+    AutoMLPipeline(cfg).run()
+
+    best = load_artifact(tmp_path / "artifacts/models/best.joblib")["metadata"]
+    sub = load_artifact(
+        tmp_path / f"artifacts/models/models/{best.model_name}.joblib"
+    )["metadata"]
+    best_d, sub_d = asdict(best), asdict(sub)
+    best_extra = best_d.pop("extra")
+    sub_extra = sub_d.pop("extra")
+    assert best_d == sub_d                       # trained_at 등 공통 필드 동일
+    assert best_extra.pop("best_selection") == "auto_by_metric"
+    assert best_extra == sub_extra               # 전략별 상세(iteration_cap / cv_bagging) 포함
+    assert ("iteration_cap" if strategy == "iteration_capping" else "cv_bagging") in best_extra
+
+    # set_best 로 바꾼 best.joblib 도 같은 항목 + 승격 정보를 갖는다
+    other = "xgb" if best.model_name != "xgb" else "lgbm"
+    promote(cfg, other)
+    promoted = load_artifact(tmp_path / "artifacts/models/best.joblib")["metadata"].extra
+    assert promoted["best_selection"] == "promoted"
+    assert set(promoted) == set(best_extra) | {"best_selection", "promoted_at", "promoted_from"}

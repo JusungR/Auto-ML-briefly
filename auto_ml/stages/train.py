@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -255,6 +255,7 @@ def postprocess(
     sub_dir = Path(cfg.artifact_dir) / "models"
     primary_metric_name = cfg.training.primary_metric
     selection_extra = _selection_extra(prep.selection)
+    sub_metadatas: dict[str, ArtifactMetadata] = {}
     for name, mr in result.results.items():
         sub_extra: dict[str, Any] = {
             "best_iteration": mr.model.best_iteration,
@@ -289,39 +290,23 @@ def postprocess(
             metric_value=mr.test_metrics[primary_metric_name],
             extra=sub_extra,
         )
+        sub_metadatas[name] = sub_metadata
         sub_path = sub_dir / f"{name}.joblib"
         save_artifact(sub_path, prep.preprocessor, mr.model, sub_metadata)
         logger.info("Saved sub-artifact (%s): %s", name, sub_path)
 
-    # best 는 sub 중 하나의 복사본.
+    # best 는 sub 중 하나의 복사본. 메타데이터도 그 sub-artifact 의 것을 그대로 쓰고
+    # (학습 시각 포함) best 선정 경위만 덧붙인다 — 따로 만들면 항목이 어긋난다.
     best_result = result.best
-    best_metadata = ArtifactMetadata(
-        target_column=cfg.target_column,
-        feature_columns=prep.feature_columns,
-        selected_features=prep.selected_features,
-        categorical_columns=prep.categorical_columns,
-        id_columns=cfg.id_columns,
-        model_name=best_result.name,
-        primary_metric=primary_metric_name,
-        metric_value=best_result.test_metrics[primary_metric_name],
+    best_sub = sub_metadatas[best_result.name]
+    best_metadata = replace(
+        best_sub,
         extra={
-            "best_iteration": best_result.model.best_iteration,
-            "fold_best_iterations": best_result.fold_best_iterations,
-            "best_params": best_result.params,
-            "training_mode": cfg.training.final_fit_strategy,
-            "tuning": (
-                {
-                    "best_value": best_result.tuning.best_value,
-                    "n_trials": best_result.tuning.n_trials,
-                }
-                if best_result.tuning is not None
-                else None
-            ),
+            **best_sub.extra,
             "best_selection": (
                 "user_override" if cfg.training.best_model is not None
                 else "auto_by_metric"
             ),
-            **selection_extra,
         },
     )
     artifact_path = Path(cfg.artifact_dir) / ARTIFACT_FILENAME

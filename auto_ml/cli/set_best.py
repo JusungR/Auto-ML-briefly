@@ -67,6 +67,9 @@ def promote(config: AutoMLConfig, model_name: str) -> Path:
     metadata.extra = dict(metadata.extra)
     metadata.extra["promoted_at"] = datetime.utcnow().isoformat()
     metadata.extra["promoted_from"] = previous_name
+    # 학습 직후의 best.joblib 과 같은 항목을 갖도록 선정 경위를 남긴다
+    # (auto_by_metric / user_override / promoted).
+    metadata.extra["best_selection"] = "promoted"
 
     save_artifact(best_path, preprocessor, model, metadata)
     primary_metric = getattr(metadata, "primary_metric", "?")
