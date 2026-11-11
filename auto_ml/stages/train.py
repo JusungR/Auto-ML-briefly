@@ -10,7 +10,9 @@
 """
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -164,6 +166,57 @@ def train(cfg: AutoMLConfig, prep: TrainPreprocessed) -> TrainingResult:
 # ----------------------------------------------------------------------
 # 3) 후처리
 # ----------------------------------------------------------------------
+# 이번 실행에서 만들지 않은 sub-artifact / sub-report 를 옮겨 두는 하위 폴더.
+# set_best 는 models/<name>.joblib 만 보므로 여기로 옮긴 파일은 후보에서 빠진다.
+PREVIOUS_DIRNAME = "_previous"
+
+
+def _archive_stale(parent: Path, stale: list[Path], what: str, note: str = "") -> list[Path]:
+    """``stale`` 경로들을 ``<parent>/_previous/<시각>/`` 으로 옮기고 새 경로를 반환한다.
+
+    이전 실행의 산출물(예: 지난번에만 켰던 ensemble) 이 남아 있으면 ``set_best`` 가
+    옛 전처리·옛 변수로 학습된 모델을 운영 best 로 올리거나, 리포트 폴더에 현재
+    실행에 없는 모델의 리포트가 섞인다. 삭제 대신 옮겨 두어 필요하면 되돌릴 수 있다.
+    """
+    if not stale:
+        return []
+    archive = parent / PREVIOUS_DIRNAME / datetime.now().strftime("%Y%m%d_%H%M%S")
+    base, suffix = archive.name, 1
+    while archive.exists():  # 같은 초에 두 번 실행된 경우
+        archive = archive.with_name(f"{base}-{suffix}")
+        suffix += 1
+    archive.mkdir(parents=True)
+    moved = [Path(shutil.move(str(p), str(archive / p.name))) for p in sorted(stale)]
+    logger.warning(
+        "Moved %d %s not produced by this run to %s: %s%s",
+        len(moved), what, archive, [p.stem for p in moved], note,
+    )
+    return moved
+
+
+def _archive_stale_outputs(cfg: AutoMLConfig, result: TrainingResult) -> None:
+    """이번 실행 결과에 없는 sub-artifact 와 sub-report 폴더를 보관 폴더로 옮긴다."""
+    sub_dir = Path(cfg.artifact_dir) / "models"
+    if sub_dir.exists():
+        names = set(result.results)
+        _archive_stale(
+            sub_dir,
+            [p for p in sub_dir.glob("*.joblib") if p.stem not in names],
+            "sub-artifact(s)",
+            " — no longer set_best candidates",
+        )
+    # sub-report 는 best 를 제외한 모델마다 만들어진다 (ReportBuilder 와 같은 규칙)
+    sub_reports = Path(cfg.reporting.output_dir) / "sub"
+    if sub_reports.exists():
+        keep = set(result.results) - {result.best_model_name}
+        _archive_stale(
+            sub_reports,
+            [d for d in sub_reports.iterdir()
+             if d.is_dir() and d.name != PREVIOUS_DIRNAME and d.name not in keep],
+            "sub-report folder(s)",
+        )
+
+
 def _selection_extra(selection: SelectionResult | None) -> dict[str, Any]:
     if selection is None:
         return {}
@@ -198,6 +251,7 @@ def postprocess(
     # best 의 동일 내용을 best.joblib 으로 한 번 더 저장한다. 이렇게 두면
     # set_best 가 재학습 없이 best 를 교체할 수 있고, 각 sub-artifact
     # 만으로도 Scorer/Explainer 가 독립적으로 동작한다.
+    _archive_stale_outputs(cfg, result)
     sub_dir = Path(cfg.artifact_dir) / "models"
     primary_metric_name = cfg.training.primary_metric
     selection_extra = _selection_extra(prep.selection)

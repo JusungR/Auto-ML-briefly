@@ -199,3 +199,45 @@ def test_explainer_ensemble_score_matches_scorer(tiny_binary_data):
     np.testing.assert_allclose(
         out["base_value"].to_numpy() + out[shap_cols].sum(axis=1).to_numpy(), scores, atol=1e-12,
     )
+
+
+# ───────────────────────────────────────────────────────────────────────
+# 이전 실행의 sub-artifact / sub-report 정리
+# ───────────────────────────────────────────────────────────────────────
+
+def test_stale_sub_artifacts_and_reports_are_archived(tmp_path, tiny_binary_data):
+    from auto_ml.cli.set_best import promote
+
+    with_ensemble = {
+        "lgbm": ModelConfig(fixed_params={"n_estimators": 30, "verbose": -1}),
+        "elasticnet": ModelConfig(enabled=True),
+    }
+    without = {
+        "lgbm": ModelConfig(fixed_params={"n_estimators": 30, "verbose": -1}),
+        "xgb": ModelConfig(fixed_params={"n_estimators": 30}),
+    }
+    cfg = _pipeline_config(tmp_path, tiny_binary_data)
+    cfg.reporting.generate_pdf = False
+    sub = tmp_path / "artifacts/models/models"
+    reports = tmp_path / "artifacts/reports/sub"
+
+    cfg.models = with_ensemble
+    AutoMLPipeline(cfg).run()
+    assert (sub / "ensemble.joblib").exists()
+
+    cfg.models = without
+    AutoMLPipeline(cfg).run()
+    assert sorted(p.stem for p in sub.glob("*.joblib")) == ["lgbm", "xgb"]
+    archived = sorted(p.name for p in (sub / "_previous").rglob("*.joblib"))
+    assert archived == ["elasticnet.joblib", "ensemble.joblib"]  # 삭제가 아니라 보관
+    assert not (reports / "ensemble").exists()
+    assert (reports / "_previous").exists()
+
+    # 옛 ensemble 은 더 이상 set_best 후보가 아니다
+    with pytest.raises(FileNotFoundError, match="Sub-artifact not found"):
+        promote(cfg, "ensemble")
+
+    # 같은 설정으로 다시 학습하면 옮길 것이 없다
+    n_archives = len(list((sub / "_previous").iterdir()))
+    AutoMLPipeline(cfg).run()
+    assert len(list((sub / "_previous").iterdir())) == n_archives

@@ -1267,6 +1267,12 @@ SHAP 시 이 파일 하나만 있으면 됩니다.
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본입니다. 각 sub-artifact 는 독립 번들이라
 그 자체로 스코어링 / SHAP 해석에 사용할 수 있습니다.
 
+재학습할 때 이번 실행에서 만들지 않은 후보 파일(예: 지난번에만 켰던 `ensemble.joblib`)은
+`models/_previous/<YYYYMMDD_HHMMSS>/` 로 옮겨지고 로그에 WARNING 이 남습니다. 옛 전처리·옛
+변수로 학습된 모델이 `set_best` 로 운영에 올라가는 것을 막기 위해서입니다 (`set_best` 는
+`models/<name>.joblib` 만 후보로 봅니다). 삭제가 아니므로 필요하면 꺼내 쓸 수 있고, 보관
+폴더는 자동으로 지워지지 않으니 쌓이면 직접 정리하세요.
+
 ### B.2 HTML / PDF 리포트
 
 `reporting.output_dir/report.html` 을 브라우저로 열면 8개 섹션으로 구성된 리포트를 볼 수 있습니다.
@@ -1299,7 +1305,8 @@ reports/sub/ensemble/...
 ```
 
 각 sub-report 는 해당 모형 vs best 점수 비교, feature importance, 10-분위 분석,
-score distribution, confusion matrix, 변수 선택 결과를 포함합니다.
+score distribution, confusion matrix, 변수 선택 결과를 포함합니다. 이번 실행에 없는 모형의
+sub-report 폴더는 `sub/_previous/<시각>/` 으로 옮겨집니다 (B.1 과 같은 규칙).
 
 ### B.3 `scores.parquet` (스코어링 산출물)
 

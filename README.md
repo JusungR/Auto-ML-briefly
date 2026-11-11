@@ -767,6 +767,13 @@ artifact_dir/models/ensemble.joblib       ← 앙상블 후보 (앙상블이 생
 `ensemble.joblib` 은 모든 서브모델을 내부에 포함하므로, 이 파일 하나만으로
 앙상블 스코어링이 완전히 동작한다.
 
+**이전 실행의 후보 정리** — 재학습 시 이번 실행에서 만들지 않은 후보 파일(예: 지난번에만
+켰던 `ensemble.joblib`)은 `artifact_dir/models/_previous/<YYYYMMDD_HHMMSS>/` 로 옮겨지고
+WARNING 이 남는다. 옛 전처리·옛 변수로 학습된 모델이 `set_best` 로 운영에 올라가는 것을
+막기 위해서다 (`set_best` 는 `models/<name>.joblib` 만 후보로 본다). 비-best 모형별 리포트
+폴더(`reporting.output_dir/sub/<name>/`)도 같은 규칙으로 `sub/_previous/<시각>/` 으로
+옮겨진다. 삭제가 아니므로 필요하면 다시 꺼내 쓸 수 있고, 보관 폴더는 자동으로 지우지 않는다.
+
 ### 학습 시점에 best 강제 지정
 
 ```yaml
