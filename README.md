@@ -26,7 +26,11 @@ auto_ml/
 ├── tuning/                Optuna 베이지안 하이퍼파라미터 최적화
 ├── reporting/             HTML + PDF 리포트 (동일 내용)
 ├── scoring/               배치 스코어링 (Scorer / run_scoring)
-└── utils/                 io / logger / validation
+├── explain/               SHAP 해석 (python -m auto_ml.explain.runner)
+├── cli/                   best 교체 (python -m auto_ml.cli.set_best)
+└── utils/                 io / logger / validation / categorical
+examples/                  실행 샘플(sample/), 데이터 준비 예시(credit/, titanic/), 더미 데이터 생성
+configs/                   예시 설정 (example.yaml, features.csv)
 ```
 
 ## 5단계 파이프라인
@@ -38,8 +42,9 @@ auto_ml/
    `feature_selection.enabled: false` (기본값) 이면 건너뛴다.
 3. **모형 적합** — LGBM / XGBoost / CatBoost / ElasticNet 4종에 대해 (a) Optuna TPE 로
    하이퍼파라미터 베이지안 최적화 → (b) StratifiedKFold OOF 평가 →
-   (c) 학습 전체로 최종 fit → (d) 테스트 데이터로 평가. 개별 모델 학습 완료 후
-   `ensemble.enabled: true` 이면 가중 평균 앙상블을 자동으로 추가 생성한다.
+   (c) 최종 fit (`final_fit_strategy`) → (d) 테스트 데이터로 평가. 개별 모델 학습 완료 후
+   `ensemble` 설정에 따라 앙상블을 추가 생성한다 (기본 strategy 는 ElasticNet 이 켜져
+   있어야 동작 — "앙상블" 절 참고).
    primary_metric (기본 ROC-AUC) 기준으로 best 모델(앙상블 포함)을 선정한다.
 4. **보고서 산출** — HTML / PDF 동일 내용 (Jinja2 + WeasyPrint). 모델 비교표,
    CV(OOF) 비교, **오버핏 점검 (Train vs Holdout, Δ)**, 튜닝 결과, ROC / PR 곡선,
@@ -264,7 +269,7 @@ feature_selection:
 
 선택 결과는 artifact 메타데이터에 저장되어 **스코어링 시 동일 컬럼 셋으로 강제 적용**된다.
 HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 라벨이 표기된다
-(예: `examples/credit/` 리포트 7번 섹션 참고).
+(리포트 8번 섹션 "변수 선택" 참고).
 
 ### 언제 켜고, 언제 끄나
 
@@ -288,7 +293,8 @@ HTML/PDF 리포트에는 변수별 selection frequency 막대와 채택/제외 �
    대해 base 선택 함수 호출.
 3. **부분표본 선택**:
    - `_lasso_select` — `LogisticRegression(solver="liblinear", C=lasso_C,
-     penalty="l1", max_iter=200)`. `abs(coef) > 1e-8` 인 컬럼을 채택.
+     max_iter=200)` 에 L1 규제 (sklearn 1.8 미만은 `penalty="l1"`, 1.8 이상은
+     `l1_ratio=1.0`). `abs(coef) > 1e-8` 인 컬럼을 채택.
    - `_lgbm_select` — `LGBMClassifier(...)` fit, gain importance 상위
      `lgbm_top_k` 개 중 `importance > 0` 만 채택.
 4. **실패 처리** — 부분표본 단일 실패는 try/except 로 잡아 warning 후
@@ -322,11 +328,14 @@ best 로 선정되어 artifact 에 저장된다.
    평균 `primary_metric` 을 최대화하는 파라미터 탐색.
 2. 튜닝된(또는 `fixed_params` 만) 파라미터로 `training.cv_folds` StratifiedKFold
    OOF 평가. 각 fold 의 best_iter 평균이 리포트의 `best_iter (avg)` 로 표기됨.
-3. 학습 데이터 전체로 최종 fit.
+3. 최종 모델 생성 — `training.final_fit_strategy` 에 따라 다르다. 기본
+   `early_stop_on_test` 는 학습 데이터 전체로 fit 하면서 테스트셋을 early-stopping
+   검증셋으로 쓴다 (자세한 내용은 "최종 모델 학습 전략" 절).
 4. 테스트 데이터로 평가 → 모델별 holdout 점수 산출.
 
 모든 개별 모델 학습 완료 후, `ensemble.enabled: true` 이고 활성화된 모델이 2개
-이상이면 `EnsembleModel` 을 자동 생성해 `results["ensemble"]` 로 추가한다. OOF
+이상이면 `ensemble.strategy` 에 따라 `EnsembleModel` 을 만들어 `results["ensemble"]` 로
+추가한다 (조건이 안 맞으면 WARNING 후 생략 — "앙상블" 절 참고). OOF
 예측은 서브모델 OOF 의 가중 평균(재학습 없음), test/train 예측은
 `EnsembleModel.predict_proba()` 로 실시간 계산한다.
 
@@ -334,25 +343,27 @@ best 로 선정되어 artifact 에 저장된다.
 
 ### 개요
 
-`ensemble.enabled: true` (기본값) 로 설정하면 개별 모델 학습 완료 직후
-`EnsembleModel` 이 자동으로 생성된다.
+`ensemble.enabled: true` (기본값) 이고 활성 모델이 2개 이상이면 개별 모델 학습 완료
+직후 `EnsembleModel` 을 만든다. 구성 방식은 `strategy` 로 고른다.
 
 ```yaml
 ensemble:
   enabled: true
-  strategy: weighted_average    # 현재 지원: weighted_average
+  strategy: elasticnet_plus_best   # elasticnet_plus_best (기본) | weighted_average
+  elasticnet_weight: null          # elasticnet_plus_best 전용. null = 점수 비례 자동
 ```
 
-### 가중치 산출
+| strategy | 구성 | 가중치 |
+|---|---|---|
+| `elasticnet_plus_best` (기본) | ElasticNet + 나머지 활성 모델 중 test `primary_metric` 1위 1개 | `elasticnet_weight` 지정 시 그 값, null 이면 두 모델 점수 비례 |
+| `weighted_average` | 활성 모델 전부 | 점수 비례: `weight[i] = score[i] / sum(score)` |
 
-각 서브모델의 테스트 `primary_metric` 점수에 **비례**하는 소프트맥스 가중치를
-사용한다:
-
-```
-weight[i] = score[i] / sum(score[j] for all j)
-```
-
-점수가 높은 모델이 앙상블에서 더 큰 영향을 미친다.
+**주의 — 기본값 조합에서는 앙상블이 만들어지지 않는다.** 기본 strategy 인
+`elasticnet_plus_best` 는 ElasticNet 이 켜져 있어야 하는데, ElasticNet 은 기본
+`enabled: false` 이고 `configs/example.yaml` 에도 `elasticnet` 블록이 없다. 이 경우
+학습은 계속되고 `Ensemble skipped — ...` WARNING 만 남는다. 앙상블을 쓰려면
+`models.elasticnet.enabled: true` 를 추가하거나 `strategy: weighted_average` 로 바꾼다.
+(`examples/credit/config.yaml`, `examples/sample/config.yaml` 은 ElasticNet 을 켜 두었다.)
 
 ### 스코어링 시 동작
 
@@ -498,8 +509,10 @@ models:
 ### early_stopping
 
 `training.early_stopping_rounds` 는 부스팅 모델 세 종류에 모두 적용되지만 내부
-구현은 다르다 (위 모델 래퍼 표 참고). OOF 평가 단계의 fold 학습에는 적용되고
-**최종 fit 에는 적용되지 않는다** (early_stopping 이 검증셋을 요구하므로).
+구현은 다르다 (위 모델 래퍼 표 참고). 튜닝·OOF 평가 단계의 fold 학습에는 항상
+적용된다. 최종 fit 은 `training.final_fit_strategy` 에 따라 다르다 — 기본
+`early_stop_on_test` 는 테스트셋을 검증셋으로 early stopping 을 적용하고,
+`iteration_capping` 은 적용하지 않으며(트리 수 고정), `cv_bagging` 은 재학습하지 않는다.
 
 ## 과적합 완화 가이드
 
@@ -655,6 +668,10 @@ pip install -r requirements.txt
 패키지 설치(`pip install -e .`) 는 필요 없다. 의존 라이브러리만 설치하고
 저장소의 `.py` 파일을 직접 실행한다.
 
+- Python 3.10 이상 (검증: 3.11, 3.13).
+- `requirements.txt` 는 `numpy<2.0` 으로 고정되어 있고, 이에 맞춰 `pyarrow<26` 으로
+  제한한다 (pyarrow 26 이상은 NumPy 2 가 필요해 Parquet 읽기가 실패한다).
+
 WeasyPrint 는 시스템 폰트와 일부 라이브러리(libpango 등) 가 필요하다.
 폐쇄망에서는 wheelhouse + 시스템 패키지를 함께 배포한다.
 
@@ -732,7 +749,7 @@ artifact_dir/models/lgbm.joblib           ← 후보 1
 artifact_dir/models/xgb.joblib            ← 후보 2
 artifact_dir/models/catboost.joblib       ← 후보 3
 artifact_dir/models/elasticnet.joblib     ← 후보 4 (enabled: true 일 때)
-artifact_dir/models/ensemble.joblib       ← 앙상블 후보 (enabled: true 일 때)
+artifact_dir/models/ensemble.joblib       ← 앙상블 후보 (앙상블이 생성된 경우)
 ```
 
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본이다. 기본은
@@ -799,18 +816,19 @@ python train/run_all.py --config examples/titanic/config.yaml
 python inference/run_all.py --config examples/titanic/config.yaml
 ```
 
-검증 시 약 10초 내외 (Optuna 10 trials × 3 모델 × 3 fold) 에 best 모델 ROC-AUC ≈ 0.86 을
-재현한다. 폐쇄망에서는 `TITANIC_CSV` 환경변수에 사전 배포한 CSV 경로를 지정하면
+Optuna 10 trials × 3 모델(LGBM·XGB·CatBoost) × 3 fold 설정으로 약 20초(환경에 따라
+다름)에 끝나며, best 모델(CatBoost) test ROC-AUC 는 약 0.85 이다 (2026-11 기준 재실행 0.8458). 폐쇄망에서는 `TITANIC_CSV` 환경변수에 사전 배포한 CSV 경로를 지정하면
 `prepare_data.py` 가 네트워크 없이 동일 산출물을 만든다.
 
 ## 폐쇄망 이관
 
-다음 4가지만 옮기면 된다:
+다음을 옮기면 된다 (스코어링 운영 기준):
 
 1. 의존 라이브러리 wheel (`pip wheel -r requirements.txt -w wheelhouse/`)
 2. 본 repo 자체 (`auto_ml/`, `train/`, `inference/` — 설치 불필요)
 3. 학습 산출물 `artifacts/models/best.joblib`
-4. 스코어링 설정 YAML
+4. 설정 YAML **과 그 YAML 의 `features_csv` 가 가리키는 CSV** — `load_config` 가 CSV 를
+   읽으므로 없으면 `FileNotFoundError` 로 실패한다.
 
 ## 설정
 
@@ -826,8 +844,11 @@ Python API(`AutoMLPipeline.run` / `run_scoring`) 는 `train` / `score` prefix �
 
 ```
 artifacts/logs/
-├── train_20260425_143052.log
-└── score_20260425_180001.log
+├── train_preprocess_20260425_143052.log
+├── train_train_20260425_143110.log
+├── train_postprocess_20260425_143502.log
+├── inference_20260425_180001.log          ← inference/run_all.py
+└── explain_20260425_181500.log
 ```
 
 설정 (`configs/example.yaml` 의 `logging` 섹션):
@@ -855,7 +876,9 @@ logging:
   전환 가능 (`focal_gamma=2.0`, `focal_alpha=0.25` 기본). 자세한 내용은 "## 손실 함수"
   절 참고.
 - 학습 시 사용한 features 정의가 artifact 메타데이터에 저장되어
-  스코어링 시 동일 컬럼 셋·동일 전처리·동일 모델로 처리된다.
+  스코어링 시 동일 컬럼 셋·동일 전처리·동일 모델로 처리된다. 스코어링 입력에 feature
+  컬럼이 통째로 없으면 에러가 아니라 학습 시 기본값(수치형 median, 범주형 최빈값)으로
+  채우고 WARNING 을 남긴다.
 - 스코어링 결과 컬럼: `<id_columns> + score + prediction`.
 - 학습 시 best 모델의 holdout 예측을 함께 내보낸다 — `<artifact_dir>/../predictions/test_predictions.parquet`,
   스키마 `<id_columns> + score + prediction + <target_column>`. 외부 BI / 추가 진단용

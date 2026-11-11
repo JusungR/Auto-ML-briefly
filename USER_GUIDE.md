@@ -66,9 +66,9 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
 
 - 결측치 채우기, 이상치 윈저라이징, skew 변환, 스케일링
 - (선택) Stability Selection 으로 변수 자동 선별
-- LightGBM / XGBoost / CatBoost / ElasticNet 네 가지 모델 학습
+- LightGBM / XGBoost / CatBoost / ElasticNet 네 가지 모델 학습 (ElasticNet 은 기본 꺼짐)
 - Optuna 로 하이퍼파라미터 베이지안 탐색
-- 모델들을 가중 평균 앙상블로 자동 결합
+- 모델들을 가중 평균 앙상블로 결합 (설정에 따라 — [§14](#14-앙상블-ensemble) 참고)
 - 테스트 점수 기준 best 모델 선정
 - HTML / PDF 리포트 생성
 - 학습 결과 한 덩어리(`best.joblib`)로 저장
@@ -125,7 +125,7 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
 
 ### 필요한 것
 
-- **Python 3.10 이상, 3.14 미만** (`python --version` 으로 확인)
+- **Python 3.10 이상** (`python --version` 으로 확인. 검증된 버전: 3.11, 3.13)
 - **pip** (보통 Python 과 함께 설치)
 - **Git** (소스 코드 clone 용)
 - (SHAP 해석을 쓰려면) **shap** — `requirements.txt` 에 포함되어 있어 `pip install -r requirements.txt` 로 자동 설치됩니다. ElasticNet 모델의 SHAP 산출 시 필요합니다.
@@ -158,7 +158,6 @@ source .venv/bin/activate          # macOS / Linux
 
 # 4) 의존성 설치
 pip install -r requirements.txt
-
 ```
 
 `auto_ml` 패키지 자체는 설치하지 않습니다. 스크립트가 저장소 루트를 import 경로에
@@ -251,7 +250,7 @@ artifacts/
 │       ├── lgbm.joblib
 │       ├── xgb.joblib
 │       ├── catboost.joblib
-│       └── ensemble.joblib      ← (앙상블 활성 시)
+│       └── ensemble.joblib      ← (앙상블이 생성된 경우 — §14)
 ├── predictions/
 │   └── test_predictions.parquet ← 학습 시 holdout 예측 (id + score + prediction + target)
 ├── reports/
@@ -440,8 +439,9 @@ artifact_dir:    ./artifacts/models
 
 - **타깃은 0/1 만 허용** — `utils/validation.py` 가 검증합니다. 결측·문자열·2 이상의 정수 등이
   섞여 있으면 즉시 실패합니다.
-- **컬럼 일관성** — 학습/테스트/스코어링 입력에 같은 컬럼 셋이 있어야 합니다. 학습 시 사용된
-  features 정의는 artifact 메타데이터에 박혀 스코어링 시 검증됩니다(빠진 컬럼은 명시적 에러).
+- **컬럼 일관성** — 학습/테스트 데이터에는 모든 feature 컬럼이 있어야 합니다(없으면 에러).
+  스코어링 입력에서 feature 컬럼이 통째로 빠지면 에러 대신 학습 시 기본값(수치형 median,
+  범주형 최빈값)으로 채우고 WARNING 을 남깁니다([§16](#16-스코어링-scoring) 참고).
 - **`id_columns`** 는 top-level 에서 한 번만 적어두면 `scoring.id_columns` /
   `explain.id_columns` 가 비어 있을 때 자동 fallback 됩니다.
 
@@ -1013,9 +1013,16 @@ ensemble:
 
 **전략별 동작**
 - `elasticnet_plus_best` — `elasticnet` 모델을 무조건 포함하고 나머지 활성 모델 중 test
-  `primary_metric` 1위 1개와 결합. ElasticNet 이 비활성이면 `ValueError`.
+  `primary_metric` 1위 1개와 결합. ElasticNet 이 비활성이면 앙상블을 만들지 않고
+  `Ensemble skipped — ...` WARNING 만 남긴 채 학습을 계속합니다.
 - `weighted_average` — 활성화된 모든 모델을 test `primary_metric` 점수에 비례하는 가중치로
-  결합. 가중치는 softmax(점수 / 합) 로 정규화.
+  결합: `weight[i] = score[i] / sum(score)`.
+
+> **주의 — 기본값 그대로면 앙상블이 만들어지지 않습니다.** 기본 strategy 는
+> `elasticnet_plus_best` 인데 ElasticNet 은 기본 `enabled: false` 이고, `configs/example.yaml`
+> 에도 `elasticnet` 블록이 없습니다. 앙상블을 쓰려면 `models.elasticnet.enabled: true` 를
+> 추가하거나 `strategy: weighted_average` 로 바꾸세요. (`examples/credit/config.yaml`,
+> `examples/sample/config.yaml` 은 ElasticNet 을 켜 두었습니다.)
 
 **호환성**
 - 앙상블의 SHAP 은 서브모델 raw-margin SHAP 의 가중 평균을 반환하므로 SHAP 해석(`auto_ml.explain`) 과
@@ -1099,8 +1106,9 @@ scoring:
 - 결과 컬럼: `<id_columns> + score + prediction`.
 - `id_columns` 우선순위: (1) `scoring.id_columns` → (2) top-level `id_columns` → (3) artifact
   메타데이터에 저장된 학습 시점 id_columns. 보통 top-level 에 한 번 적어두면 충분합니다.
-- 스코어링 입력은 학습 시점의 features 정의(+ 변수 선택 결과)와 동일 컬럼 셋이어야 합니다.
-  컬럼이 빠지면 명시적 에러.
+- 스코어링 입력에는 학습 시점의 feature 컬럼이 있어야 합니다. 컬럼이 통째로 빠지면 에러가
+  아니라 학습 시 기본값(수치형 median, 범주형 최빈값)으로 채우고 WARNING 을 남깁니다 —
+  일시 누락 대비 안전망이므로, 이 경고가 반복되면 입력 데이터를 점검하세요.
 - `threshold` 는 도메인에 따라 조정 (예: false-negative 비용이 크면 0.3 으로 낮춤).
 
 ---
@@ -1244,7 +1252,7 @@ SHAP 시 이 파일 하나만 있으면 됩니다.
     ├── xgb.joblib               ← 후보 2
     ├── catboost.joblib          ← 후보 3
     ├── elasticnet.joblib        ← 후보 4 (enabled 시)
-    └── ensemble.joblib          ← 앙상블 후보 (enabled 시)
+    └── ensemble.joblib          ← 앙상블 후보 (앙상블이 생성된 경우)
 ```
 
 `best.joblib` 은 위 sub-artifact 중 하나의 복사본입니다. 각 sub-artifact 는 독립 번들이라
@@ -1375,9 +1383,9 @@ training:
 `scoring.threshold: 0.3` 처럼 변경 (0.3 이상이면 1로 분류).
 
 **Q8. 스코어링 입력에 컬럼 하나가 없어요**
-학습 시 features 정의가 `best.joblib` 메타데이터에 박혀 있어 동일 컬럼 셋이 필요합니다.
-빠진 컬럼이 있으면 명시적 에러로 알려줍니다. 일시 누락이면 컬럼만 NaN 으로 채워 다시
-실행하세요(라이브러리가 자동으로 학습 시 기본값으로 채웁니다).
+에러 없이 진행됩니다. 빠진 feature 컬럼은 학습 시 기본값(수치형 median, 범주형 최빈값)으로
+채워지고 `Input is missing N feature column(s); filled with training defaults: [...]` WARNING
+이 남습니다. 해당 변수 정보 없이 예측한 셈이므로, 일시 누락이 아니라면 입력 데이터를 고치세요.
 
 **Q9. 오버핏 Δ 가 너무 큽니다**
 [§11 최종 모델 학습 전략](#최종-모델-학습-전략-final_fit_strategy)의
@@ -1408,7 +1416,7 @@ training:
 
 ## D. 폐쇄망 이관
 
-다음 4가지만 옮기면 됩니다.
+다음을 옮기면 됩니다.
 
 1. **패키지 wheel 묶음** — 외부망에서 미리 만들어 둡니다.
    ```bash
@@ -1416,7 +1424,8 @@ training:
    ```
 2. **본 저장소 자체** — `git clone` 한 폴더 그대로 (`auto_ml/`, `train/`, `inference/` 가 필요합니다. 설치는 하지 않습니다).
 3. **학습 산출물** — `artifacts/models/best.joblib` (`work/` 폴더는 옮길 필요 없음)
-4. **스코어링용 설정 YAML**
+4. **스코어링용 설정 YAML 과 그 YAML 의 `features_csv` 가 가리키는 CSV** — 설정을 읽을 때
+   CSV 도 함께 읽으므로, CSV 가 없으면 `FileNotFoundError` 로 실패합니다.
 
 폐쇄망에서 설치:
 
