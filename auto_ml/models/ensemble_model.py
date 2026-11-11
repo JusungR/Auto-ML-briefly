@@ -1,7 +1,8 @@
 """가중 평균 앙상블 모델.
 
 학습된 BaseModel 인스턴스들을 내부에 보유하고,
-predict_proba / shap_values 를 가중 평균으로 결합한다.
+predict_proba / shap_values 를 가중 평균으로 결합한다. 예측은 확률의 가중 평균이며,
+확률 도메인 SHAP(``shap_values_proba``) 도 같은 방식으로 결합해 합이 예측과 일치한다.
 
 registry.py 에 등록하지 않는다 — 이름+파라미터만으로 인스턴스를
 생성할 수 없기 때문이다 (Trainer 가 직접 생성).
@@ -16,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from auto_ml.models.base import BaseModel
+from auto_ml.utils.shap_domain import margin_shap_to_probability
 
 if TYPE_CHECKING:
     from auto_ml.models.trainer import ModelResult
@@ -66,7 +68,7 @@ class EnsembleModel(BaseModel):
         primary_metric: str,
         elasticnet_weight: float | None = None,
     ) -> "EnsembleModel":
-        """elasticnet + 나머지 best 모델 2개 앙상블.
+        """elasticnet + 나머지 활성 모델 중 best 1개 앙상블.
 
         elasticnet 은 무조건 포함하고, 나머지 활성 모델 중
         test primary_metric 이 가장 높은 1개를 결합한다.
@@ -159,11 +161,40 @@ class EnsembleModel(BaseModel):
                 combined[feat] = combined.get(feat, 0.0) + w * val
         return combined
 
+    def shap_values_proba(self, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        """확률 도메인 SHAP — 서브모델별로 확률 도메인으로 바꾼 뒤 가중 평균한다.
+
+        앙상블 예측은 서브모델 **확률**의 가중 평균이므로, SHAP 도 확률 도메인에서
+        같은 가중치로 평균해야 합이 실제 예측과 일치한다:
+
+            base     = Σ w_m · p_base_m
+            shap[i]  = Σ w_m · shap_prob_m[i]
+            base + Σ shap = Σ w_m · p_pred_m = predict_proba(X)
+
+        Returns:
+            ``(shap_prob (n, n_features), base_prob (n,))``. Explainer 가 우선 사용한다.
+        """
+        shap_sum: np.ndarray | None = None
+        base_sum: np.ndarray | None = None
+        for name, model in self.base_models.items():
+            w = self.weights[name]
+            if hasattr(model, "shap_values_proba"):   # 중첩 앙상블
+                sp, bp = model.shap_values_proba(X)
+            else:
+                sp, bp, _ = margin_shap_to_probability(model.shap_values(X))
+            shap_sum = w * sp if shap_sum is None else shap_sum + w * sp
+            base_sum = w * bp if base_sum is None else base_sum + w * bp
+        assert shap_sum is not None and base_sum is not None
+        return shap_sum, base_sum
+
     def shap_values(self, X: pd.DataFrame) -> np.ndarray:
-        """서브모델 raw-margin SHAP 의 가중 평균.
+        """서브모델 raw-margin SHAP 의 가중 평균 (logit 도메인).
 
         각 서브모델은 원본 피처 공간 (n, n_features+1) 을 반환하므로
         앙상블도 동일한 shape 를 유지한다.
+
+        주의: 앙상블 예측은 확률 평균이므로 이 값의 합에 sigmoid 를 씌워도
+        ``predict_proba`` 와 일치하지 않는다. 확률 해석에는 ``shap_values_proba`` 를 쓴다.
         """
         result: np.ndarray | None = None
         for name, model in self.base_models.items():

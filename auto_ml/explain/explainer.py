@@ -12,6 +12,11 @@ SHAP 을 반환하므로 본 모듈에서 probability 도메인으로 정규화�
     shap_prob[i] = feature_raw[i] / sum(feature_raw) * delta   (sum != 0)
 
 이렇게 하면 모든 행에서 ``base_value + sum(shap_*) == score`` 가 정확히 성립.
+(변환 구현: ``auto_ml.utils.shap_domain.margin_shap_to_probability``)
+
+앙상블은 예측이 서브모델 확률의 가중 평균이므로 위 변환을 서브모델마다 적용한 뒤
+가중 평균한다 (``EnsembleModel.shap_values_proba``). 그래야 ``score`` 가 실제 예측
+(``Scorer`` 결과) 과 일치한다.
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from auto_ml.utils.categorical import log_unseen_categories
+from auto_ml.utils.shap_domain import margin_shap_to_probability
 from auto_ml.utils.io import load_artifact
 from auto_ml.utils.logger import get_logger
 from auto_ml.utils.validation import validate_schema
@@ -29,14 +35,6 @@ from auto_ml.utils.validation import validate_schema
 logger = get_logger("explainer")
 
 
-def _sigmoid(z: np.ndarray) -> np.ndarray:
-    # 큰 음수에서의 overflow 방지를 위해 분기 — np.exp(|z|) > 1e308 회피
-    out = np.empty_like(z, dtype=float)
-    pos = z >= 0
-    out[pos] = 1.0 / (1.0 + np.exp(-z[pos]))
-    e = np.exp(z[~pos])
-    out[~pos] = e / (1.0 + e)
-    return out
 
 
 class Explainer:
@@ -95,25 +93,23 @@ class Explainer:
             self.preprocessor, X_processed, logger, context="explain_input", columns=selected,
         )
 
-        # raw-margin SHAP — shape (n, n_features + 1), 마지막 열 = base value
-        shap_raw = np.asarray(self.model.shap_values(X_for_model))
-        if shap_raw.shape[1] != len(selected) + 1:
+        if hasattr(self.model, "shap_values_proba"):
+            # 앙상블: 서브모델별 확률 도메인 SHAP 의 가중 평균
+            shap_prob, p_base = self.model.shap_values_proba(X_for_model)
+            shap_prob = np.asarray(shap_prob, dtype=float)
+            p_base = np.asarray(p_base, dtype=float)
+            p_pred = p_base + shap_prob.sum(axis=1)
+            n_cols = shap_prob.shape[1] + 1
+        else:
+            # 단일 모델: raw-margin SHAP — shape (n, n_features + 1), 마지막 열 = base value
+            shap_raw = np.asarray(self.model.shap_values(X_for_model))
+            n_cols = shap_raw.shape[1]
+            shap_prob, p_base, p_pred = margin_shap_to_probability(shap_raw)
+        if n_cols != len(selected) + 1:
             raise RuntimeError(
-                f"shap_values returned {shap_raw.shape[1]} columns, expected "
+                f"shap_values returned {n_cols} columns, expected "
                 f"{len(selected) + 1} (= {len(selected)} features + base value)."
             )
-        feature_raw = shap_raw[:, :-1]
-        base_raw = shap_raw[:, -1]
-
-        # probability 도메인으로 변환 (가법성 보존)
-        p_base = _sigmoid(base_raw)
-        p_pred = _sigmoid(base_raw + feature_raw.sum(axis=1))
-        delta = p_pred - p_base
-        sum_raw = feature_raw.sum(axis=1)
-        # 0 나눗셈 회피 — sum_raw==0 인 행은 SHAP 도 모두 0
-        with np.errstate(divide="ignore", invalid="ignore"):
-            ratio = np.where(sum_raw != 0, delta / sum_raw, 0.0)
-        shap_prob = feature_raw * ratio[:, None]
 
         # id_columns 우선순위 — Scorer.score 와 동일
         ids = list(id_columns) if id_columns else list(self.metadata.id_columns)

@@ -374,8 +374,13 @@ ensemble:
 
 ### SHAP
 
-서브모델별 raw-margin SHAP 값의 가중 평균을 반환한다. 반환 shape 는 개별 모델과
-동일하게 `(n, n_features + 1)` 을 유지해 SHAP 해석(`auto_ml.explain`) 과 완전히 호환된다.
+앙상블 예측은 서브모델 **확률**의 가중 평균이므로, SHAP 도 서브모델마다 확률 도메인으로
+바꾼 뒤 같은 가중치로 평균한다 (`EnsembleModel.shap_values_proba`). 그래서
+`base_value + sum(shap_*)` 가 앙상블의 실제 예측 점수와 정확히 일치한다. `cv_bagging` 의
+fold 평균 모델도 같은 방식이다.
+
+(logit 도메인 SHAP 을 평균하는 `shap_values()` 도 남아 있지만, 그 합에 sigmoid 를 씌운 값은
+확률 평균 예측과 다르므로 해석에는 쓰지 않는다.)
 
 ## ElasticNet 모델
 
@@ -614,7 +619,7 @@ training:
 학습된 모형이 각 입력 행을 왜 그렇게 예측했는지 **건별·변수별 기여도** 를 산출한다.
 LGBM/XGB/CatBoost 는 native API (`pred_contrib` / `ShapValues`) 를 사용하고,
 `ElasticNetModel` 은 `shap.LinearExplainer` 를 사용한다. `EnsembleModel` 은
-서브모델 SHAP 의 가중 평균을 반환한다.
+서브모델별 확률 도메인 SHAP 의 가중 평균을 쓴다 (위 "앙상블 > SHAP" 참고).
 모든 모델의 `shap_values()` 는 `(n, n_features + 1)` 형태로 반환 — Explainer 와
 완전 호환.
 

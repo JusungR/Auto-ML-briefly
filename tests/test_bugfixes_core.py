@@ -153,3 +153,49 @@ def test_target_with_missing_values_is_rejected():
     with pytest.raises(ValueError, match="'default' has 2 missing value"):
         validate_binary_target(pd.Series([0, 1, np.nan, None, 1], name="default"))
     validate_binary_target(pd.Series([0, 1], dtype="Int64"))  # 정상 입력은 통과
+
+
+# ───────────────────────────────────────────────────────────────────────
+# 앙상블 SHAP — 확률 도메인 가중 평균 (예측과 합이 일치)
+# ───────────────────────────────────────────────────────────────────────
+
+def _fitted_ensemble(tiny_binary_data):
+    from auto_ml.models.elasticnet_model import ElasticNetModel
+    from auto_ml.models.ensemble_model import EnsembleModel
+
+    X, y = tiny_binary_data
+    lgb = LGBMModel(params={"n_estimators": 60, "verbose": -1}, categorical_columns=["cat1"]).fit(X, y)
+    en = ElasticNetModel(params={}, categorical_columns=["cat1"]).fit(X, y)
+    return EnsembleModel({"lgbm": lgb, "elasticnet": en}, {"lgbm": 0.6, "elasticnet": 0.4}), X
+
+
+def test_ensemble_probability_shap_sums_to_prediction(tiny_binary_data):
+    ens, X = _fitted_ensemble(tiny_binary_data)
+    shap_prob, base = ens.shap_values_proba(X)
+    assert shap_prob.shape == (len(X), len(ens.feature_columns))
+    np.testing.assert_allclose(base + shap_prob.sum(axis=1), ens.predict_proba(X), atol=1e-12)
+
+
+def test_explainer_ensemble_score_matches_scorer(tiny_binary_data):
+    from auto_ml.config import PreprocessingConfig
+    from auto_ml.explain.explainer import Explainer
+    from auto_ml.preprocessing import PreprocessingPipeline
+    from auto_ml.scoring.scorer import Scorer
+    from auto_ml.utils.io import ArtifactMetadata
+
+    X, y = tiny_binary_data
+    pp = PreprocessingPipeline(["num1", "num2"], ["cat1"], PreprocessingConfig())
+    Xp = pp.fit_transform(X)
+    ens, _ = _fitted_ensemble((Xp, y))
+    meta = ArtifactMetadata(
+        target_column="target", feature_columns=["num1", "num2", "cat1"],
+        categorical_columns=["cat1"], id_columns=[], model_name="ensemble",
+        primary_metric="roc_auc", metric_value=0.0, selected_features=["num1", "num2", "cat1"],
+    )
+    scores = Scorer(pp, ens, meta).score(X)["score"].to_numpy()
+    out = Explainer(pp, ens, meta).explain(X)
+    shap_cols = [c for c in out.columns if c.startswith("shap_")]
+    np.testing.assert_allclose(out["score"].to_numpy(), scores, atol=1e-12)
+    np.testing.assert_allclose(
+        out["base_value"].to_numpy() + out[shap_cols].sum(axis=1).to_numpy(), scores, atol=1e-12,
+    )

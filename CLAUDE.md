@@ -100,7 +100,7 @@ Each `.joblib` artifact bundles three objects: `(preprocessor, model, ArtifactMe
 ### Scoring and Explain
 
 - **`auto_ml/scoring/`** — `Scorer.from_artifact(path)` loads the artifact; `score()` = `prepare()` (preprocess) → `predict()` → `finalize()` (threshold + id columns); outputs a Parquet with score and optional id columns.
-- **`auto_ml/explain/`** — SHAP values via `python -m auto_ml.explain.runner`; output is wide-format Parquet: `<id_columns> + shap_<feature>... + base_value + score`.
+- **`auto_ml/explain/`** — SHAP values via `python -m auto_ml.explain.runner`; output is wide-format Parquet: `<id_columns> + shap_<feature>... + base_value + score`. Raw-margin SHAP is converted to probability space by `utils/shap_domain.py`; `EnsembleModel.shap_values_proba` converts per sub-model then weight-averages (ensemble predicts a weighted mean of probabilities), so `score` always equals the Scorer output.
 
 ### Tests (`tests/`)
 

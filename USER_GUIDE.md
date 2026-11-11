@@ -1032,8 +1032,8 @@ ensemble:
 > `elasticnet` 블록을 지우면 이 경고가 나옵니다.
 
 **호환성**
-- 앙상블의 SHAP 은 서브모델 raw-margin SHAP 의 가중 평균을 반환하므로 SHAP 해석(`auto_ml.explain`) 과
-  완전 호환됩니다.
+- 앙상블의 SHAP 은 서브모델마다 확률 도메인으로 바꾼 뒤 앙상블과 같은 가중치로 평균합니다.
+  그래서 SHAP 결과의 `score` 가 스코어링 점수와 정확히 일치합니다 (`cv_bagging` 모델도 동일).
 - `cv_bagging` 과 함께 켜면 외부 앙상블은 **자동 비활성화** + WARN (각 모델이 이미 fold 평균).
 - 앙상블이 best 로 선정되면 `best.joblib` 이 곧 앙상블입니다. cloudpickle 이 서브모델 전체
   객체 그래프를 직렬화하므로 단일 파일로 스코어링·SHAP 모두 동작합니다.
@@ -1128,8 +1128,8 @@ scoring:
 
 SHAP 해석(`python -m auto_ml.explain.runner`) 이 사용하는 옵션. 학습된 모델이 각 행을 왜 그렇게 예측했는지 **건별·변수별
 기여도(SHAP)** 를 산출해 Parquet 으로 저장합니다. LGBM/XGB/CatBoost 는 native API
-(`pred_contrib`), ElasticNet 은 `shap.LinearExplainer`, 앙상블은 서브모델 SHAP 의 가중
-평균을 사용합니다.
+(`pred_contrib`), ElasticNet 은 `shap.LinearExplainer`, 앙상블은 서브모델별 확률 도메인
+SHAP 의 가중 평균을 사용합니다. 어떤 모델이든 출력의 `score` 는 스코어링 점수와 같습니다.
 
 ### 옵션
 
