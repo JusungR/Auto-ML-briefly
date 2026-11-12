@@ -680,6 +680,7 @@ CV 폴드 수, 조기 종료 라운드, 모델 선택 지표, **[최종 모델 �
 | `final_fit_strategy` | str | `early_stop_on_test` | `early_stop_on_test` / `iteration_capping` / `cv_bagging` | 최종 모델 학습 방식 |
 | `iteration_cap_aggregation` | str | `mean` | `mean` / `median` | (capping 전용) fold best_iter 집계 방식 |
 | `iteration_cap_headroom` | float | `1.0` | `> 0` | (capping 전용) 집계값 × headroom 후 ceil |
+| `n_jobs` | int / null | `null` | `null` / 양수 / 음수 | 학습(튜닝·CV·변수 선택) CPU 스레드 수. null = 전체 코어, `-1` = 전체, `-2` = 하나 남김. 같은 서버에서 다른 작업과 동시에 돌 때 줄입니다 ([FAQ Q17](#c-트러블슈팅-faq)) |
 
 `primary_metric` 가이드:
 
@@ -1105,6 +1106,7 @@ reporting:
 | `output_path` | str | `./artifacts/scores/scores.parquet` | 결과 저장 경로 |
 | `id_columns` | list[str] | `[]` | 결과에 보존할 식별자 (override) |
 | `threshold` | float | `0.5` | `predict_proba` → 0/1 변환 임계값 |
+| `n_jobs` | int / null | `null` | 추론·SHAP CPU 스레드 수. null = 학습 때 값 그대로(학습도 null 이면 전체 코어). 규칙은 `training.n_jobs` 와 같음. 예측 결과는 바뀌지 않음 |
 
 ### YAML 예시
 
@@ -1253,9 +1255,25 @@ versioning:
 
 **운영 모델을 바꿀 때 (자동 배포 / `set_best` / `rollback` 공통)**
 - 대상 모델을 실제로 열어 `scoring.input_path` 앞 100행으로 **시험 스코어링**을 합니다. 실패하면
-  운영 모델을 바꾸지 않습니다. 입력에 없는 변수가 있으면 WARNING 을 남깁니다.
+  운영 모델을 바꾸지 않습니다.
+- **모델이 쓰는 변수가 `scoring.input_path` 에 없으면 교체를 거부합니다.** 그대로 두면 그 변수가
+  모든 행에서 학습 평균값(최빈값)으로 채워져 예측 품질이 조용히 떨어지기 때문입니다. 입력을
+  고치는 것이 우선이고, 알고도 진행하려면 `--allow-missing-features` 를 붙입니다. 변수 선택에서
+  빠진 변수만 없으면 WARNING 만 남깁니다(예측에 영향 없음).
+- 학습 후 자동 배포가 이 이유로 거부되면 실행·리포트는 저장된 채로 **에러로 끝나며**(cron 이
+  성공으로 오인하지 않도록) 운영 모델은 그대로입니다. 에러 메시지의 `set_best --run ...` 명령으로
+  확인 후 배포하세요.
 - 임시 파일에 쓴 뒤 한 번에 교체하므로, 교체 중 추론이 읽어도 깨진 파일을 보지 않습니다.
 - `deployments.jsonl` 에 시각·동작·실행·모델·점수·직전 운영 모델을 기록합니다.
+
+**동시 실행 잠금**
+- 학습(`train/*.py`, `AutoMLPipeline.run`)·`set_best`·`rollback` 은 실행 동안 `artifact_dir/.lock`
+  을 잡습니다. 다른 작업이 이미 잡고 있으면 기다리지 않고 **바로 에러**로 끝납니다(긴 학습을
+  마친 뒤에야 충돌을 알게 되는 일이 없도록 학습 시작 시점에 확인).
+- 작업이 비정상 종료되어 잠금이 남았으면, 같은 서버에서는 다음 작업이 자동으로 넘겨받습니다.
+  다른 서버(공유 디스크)에서 남긴 잠금은 판단할 수 없으므로, 그 작업이 정말 끝났는지 확인한 뒤
+  에러 메시지에 나온 `.lock` 파일을 지우세요.
+- 추론·SHAP 은 잠그지 않습니다(운영 모델 파일은 원자적으로 교체됨).
 
 **롤백**
 ```bash
@@ -1271,7 +1289,10 @@ python -m auto_ml.cli.set_best --config <yaml> --list                         # 
   시험 스코어링 단계에서 거부되고 운영 모델은 그대로 유지됩니다.
 - 예전 구조(`runs/` 없음)의 폴더는 다음 학습 때 기존 모델·리포트를 `runs/legacy_<원래 학습 시각>/`
   으로 담아 두므로, 첫 롤백이 예전 운영 모델로 돌아갈 수 있습니다.
-- 같은 `artifact_dir` 로 학습 두 개를 동시에 실행하지 마세요(지원하지 않음).
+- 같은 `artifact_dir` 의 학습 두 개는 잠금 때문에 동시에 돌지 않습니다. 단, 단계 스크립트
+  (`train/preprocess.py` → `train.py` → `postprocess.py`) 를 따로 실행하면서 두 학습의 단계를
+  섞어 실행하면(예: A 전처리 → B 전처리 → A 학습) 공유하는 `work/` 파일이 덮어써져 막을 수
+  없습니다. 학습은 하나씩 순서대로 실행하세요.
 
 ---
 
@@ -1296,6 +1317,9 @@ python -m auto_ml.cli.set_best --config <yaml> --list                         # 
 | `python -m auto_ml.cli.set_best --config <yaml> --run <id> --model <name>` | 이전 실행의 모델로 교체 |
 | `python -m auto_ml.cli.set_best --config <yaml> --list` | 실행 목록·배포 이력 보기 |
 | `python -m auto_ml.cli.rollback --config <yaml>` | 직전 운영 모델로 되돌리기 (다시 실행하면 원래대로) |
+
+`set_best`·`rollback` 은 `--allow-missing-features` 를 받습니다 — 모델이 쓰는 변수가 스코어링 입력에
+없어도 교체합니다(기본은 거부, [§19](#19-실행-이력배포롤백-versioning)).
 
 best 교체 예시:
 
@@ -1509,6 +1533,21 @@ training:
 `versioning.keep_last_runs`(기본 5) 를 넘는 오래된 실행은 학습할 때 자동으로 지워집니다. 단, 현재
 운영 실행과 직전 운영 실행은 오래돼도 남깁니다. 실행 하나의 크기는 후보 모델 + 리포트(PDF 포함) +
 test 예측 정도입니다.
+
+**Q17. 같은 서버에서 학습과 스코어링(또는 학습 두 개) 을 같이 돌리면 매우 느려져요**
+LightGBM·XGBoost·CatBoost 는 기본으로 **프로세스마다 서버의 모든 코어**를 씁니다. 두 작업이
+동시에 돌면 스레드 수가 코어 수를 크게 넘고, 스레드끼리 서로를 기다리며 각각이 혼자 돌 때보다
+수십 배 느려질 수 있습니다. 동시에 도는 작업들의 스레드 합이 코어 수를 넘지 않게 설정하세요.
+
+```yaml
+training:
+  n_jobs: 6     # 예: 8코어 서버에서 학습 6 스레드
+scoring:
+  n_jobs: 2     #     스코어링 cron 2 스레드
+```
+
+`n_jobs` 는 예측 결과를 바꾸지 않고 속도만 바꿉니다. 모델 `fixed_params` 에 스레드 인자
+(`num_threads`, `nthread`, `thread_count` 등) 를 직접 쓰면 그 값이 우선합니다.
 
 ---
 

@@ -100,6 +100,12 @@ Each `.joblib` artifact bundles three objects: `(preprocessor, model, ArtifactMe
 
 Each training writes an immutable snapshot `artifact_dir/runs/<run_id>/` (`models/*.joblib`, `reports/`, `predictions/`, `run_info.json`) and replaces `artifact_dir/models/` wholesale with a copy of the latest run. Every production change goes through `versioning.deploy()` — load + test-score on `scoring.input_path` head(100), atomic `best.joblib` replace (`save_artifact` writes temp + `os.replace`), append to `deployments.jsonl` (`action`: train/promote/rollback/legacy, `previous` ref). `VersioningConfig`: `auto_deploy` (default true), `keep_last_runs` (default 5; current and previous production runs are never pruned). An old `artifact_dir` without `runs/` is migrated into `runs/legacy_*` on the next training.
 
+Deploy refuses a model whose **used** features (`selected_features`) are missing from `scoring.input_path` (`DeploymentError`) unless `allow_missing_features=True` / `--allow-missing-features`; a refused auto-deploy keeps the run and raises (non-zero exit). Training (`train/*.py`, `AutoMLPipeline.run`), `promote`, `rollback` hold `versioning.artifact_lock()` (`artifact_dir/.lock`, O_EXCL, fail fast with `ArtifactLockError`, same-host dead-pid takeover, re-entrant in-process); inference/explain don't lock.
+
+### Threads (`auto_ml/utils/threads.py`)
+
+`training.n_jobs` / `scoring.n_jobs` (default null = library default = all cores; negatives follow sklearn). Wrappers declare `THREAD_PARAM_NAMES` and inject via `BaseModel._thread_params()` unless the user set one in `fixed_params`; `build_model(..., n_jobs=)` sets it at training. `BaseModel.set_n_jobs()` changes threads on a fitted model (LGBM/XGB `set_params`, CatBoost per-call `thread_count`, ensemble propagates); `Scorer/Explainer.from_artifact(path, n_jobs=)` apply `scoring.n_jobs`. Predictions are unchanged.
+
 ```bash
 python -m auto_ml.cli.set_best --config <yaml> --model xgb                 # from latest run (models/)
 python -m auto_ml.cli.set_best --config <yaml> --run <run_id> --model lgbm # from an earlier run

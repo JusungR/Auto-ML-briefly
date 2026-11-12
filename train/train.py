@@ -15,14 +15,16 @@ sys.path[0] = str(Path(__file__).resolve().parents[1])
 from auto_ml.stages import load_stage, save_stage  # noqa: E402
 from auto_ml.stages import train as stages  # noqa: E402
 from auto_ml.stages.cli import parse_stage_args, start_stage_logging  # noqa: E402
+from auto_ml.versioning import artifact_lock  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> Path:
     config, work_dir = parse_stage_args("[train 2/3] train", "train", argv)
     start_stage_logging(config, "train_train")
-    prep = load_stage(work_dir, stages.PREPROCESS_OUTPUT)
-    result = stages.train(config, prep)
-    path = save_stage(result, work_dir, stages.TRAIN_OUTPUT)
+    with artifact_lock(config.artifact_dir, "train/train.py"):
+        prep = load_stage(work_dir, stages.PREPROCESS_OUTPUT)
+        result = stages.train(config, prep)
+        path = save_stage(result, work_dir, stages.TRAIN_OUTPUT)
     print(f"trained: {path} (best={result.best_model_name})")
     return path
 

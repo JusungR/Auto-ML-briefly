@@ -143,6 +143,7 @@ class HyperparameterOptimizer:
                     categorical_columns=categorical_columns,
                     random_state=cfg.tuning.random_state,
                     loss=loss,
+                    n_jobs=cfg.training.n_jobs,
                 )
                 model.fit(
                     X_tr, y_tr, X_va, y_va,

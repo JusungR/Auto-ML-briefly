@@ -36,6 +36,11 @@ class BaseModel(ABC):
     # (ElasticNet) 은 None 으로 두어 capping 대상에서 제외됨을 표시한다.
     ITER_PARAM_NAME: str | None = None
 
+    # 스레드 수를 지정하는 라이브러리 파라미터 이름 (첫 번째가 주입에 쓰는 이름, 나머지는
+    # 별칭). 사용자가 fixed_params 에 이 중 하나를 직접 쓰면 n_jobs 설정보다 우선한다.
+    # 스레드 개념이 없는 모델은 빈 튜플.
+    THREAD_PARAM_NAMES: tuple[str, ...] = ()
+
     def __init__(
         self,
         params: dict[str, Any] | None = None,
@@ -59,6 +64,40 @@ class BaseModel(ABC):
         self.best_iteration: int | None = None
         # focal 활성 여부 — predict_proba 의 후처리 (sigmoid) 분기에 사용
         self._focal_active: bool = False
+        # CPU 스레드 수 (None = 라이브러리 기본 = 전체 코어). set_n_jobs 로 바꾼다.
+        self.n_jobs: int | None = None
+
+    # ------------------------------------------------------------------
+    # 스레드 수
+    # ------------------------------------------------------------------
+    def set_n_jobs(self, n_jobs: int | None) -> "BaseModel":
+        """학습·예측에 쓸 스레드 수를 정한다 (``auto_ml.utils.threads.resolve_n_jobs`` 규칙).
+
+        학습 전에 부르면 ``fit`` 이 그 값으로 학습하고, 학습된 모델에 부르면 이후 예측·SHAP
+        에 적용된다 (예측 결과는 바뀌지 않는다). ``None`` 이면 아무것도 바꾸지 않는다.
+        과거 artifact 의 객체에도 쓸 수 있다 (클래스 코드는 참조로 불러온다).
+        """
+        from auto_ml.utils.threads import resolve_n_jobs
+
+        n = resolve_n_jobs(n_jobs)
+        if n is None:
+            return self
+        self.n_jobs = n
+        if getattr(self, "model", None) is not None:
+            self._apply_n_jobs_to_fitted(n)
+        return self
+
+    def _apply_n_jobs_to_fitted(self, n_jobs: int) -> None:
+        """학습된 라이브러리 객체에 스레드 수를 반영한다. 기본은 아무것도 하지 않음."""
+
+    def _thread_params(self) -> dict[str, Any]:
+        """``_resolved_params`` 에 더할 스레드 인자. 사용자가 직접 지정했으면 비운다."""
+        n = getattr(self, "n_jobs", None)  # 과거 artifact 객체에는 속성이 없다
+        if n is None or not self.THREAD_PARAM_NAMES:
+            return {}
+        if any(k in self.params for k in self.THREAD_PARAM_NAMES):
+            return {}
+        return {self.THREAD_PARAM_NAMES[0]: n}
 
     @abstractmethod
     def fit(

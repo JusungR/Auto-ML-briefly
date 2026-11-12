@@ -37,12 +37,20 @@ class Scorer:
 
     # ------------------------------------------------------------------
     @classmethod
-    def from_artifact(cls, path: str | Path) -> "Scorer":
-        """artifact 번들 파일을 로드해 Scorer 를 생성한다."""
+    def from_artifact(cls, path: str | Path, n_jobs: int | None = None) -> "Scorer":
+        """artifact 번들 파일을 로드해 Scorer 를 생성한다.
+
+        Args:
+            path: artifact 경로.
+            n_jobs: 예측 스레드 수 (``ScoringConfig.n_jobs``). None 이면 학습 때 값 그대로.
+        """
         bundle = load_artifact(path)
+        model = bundle["model"]
+        if n_jobs is not None and hasattr(model, "set_n_jobs"):
+            model.set_n_jobs(n_jobs)
         return cls(
             preprocessor=bundle["preprocessor"],
-            model=bundle["model"],
+            model=model,
             metadata=bundle["metadata"],
         )
 

@@ -21,7 +21,11 @@ import json
 import os
 import platform
 import shutil
+import socket
 import subprocess
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,11 +43,115 @@ RUNS_DIRNAME = "runs"
 LATEST_DIRNAME = "models"
 DEPLOY_LOG = "deployments.jsonl"
 RUN_INFO = "run_info.json"
+LOCK_FILE = ".lock"
 SMOKE_ROWS = 100
+# 내용을 읽을 수 없는 잠금 파일(만든 직후 비정상 종료 등) 을 버려진 것으로 볼 최소 경과 시간
+UNREADABLE_LOCK_GRACE_SEC = 60
 
 
 class DeploymentError(RuntimeError):
     """배포 대상 모델을 운영에 올릴 수 없을 때 (로드 실패, 시험 스코어링 실패 등)."""
+
+
+class ArtifactLockError(RuntimeError):
+    """다른 학습·배포 작업이 같은 artifact_dir 을 쓰고 있을 때."""
+
+
+# ----------------------------------------------------------------------
+# 쓰기 작업 잠금
+# ----------------------------------------------------------------------
+_held_locks: dict[Path, int] = {}  # 이 프로세스가 잡은 잠금 → 중첩 횟수 (재진입 허용)
+
+
+def _read_lock(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # 다른 계정의 살아 있는 프로세스
+        return True
+    return True
+
+
+def _is_stale(path: Path, holder: dict[str, Any]) -> bool:
+    """잠금을 잡은 프로세스가 이미 없으면 True. 판단할 수 없으면 False (보수적으로)."""
+    if not holder:
+        try:
+            return time.time() - path.stat().st_mtime > UNREADABLE_LOCK_GRACE_SEC
+        except OSError:
+            return True  # 그새 사라짐
+    if os.name == "nt":
+        # Windows 의 os.kill(pid, 0) 은 생존 확인이 아니라 프로세스를 종료시킨다 — 판단하지 않는다.
+        return False
+    if holder.get("host") != socket.gethostname():
+        return False  # 다른 호스트(공유 디스크) 의 pid 는 확인할 수 없다
+    try:
+        return not _pid_alive(int(holder.get("pid")))
+    except (TypeError, ValueError):
+        return False
+
+
+@contextmanager
+def artifact_lock(artifact_dir: str | Path, purpose: str) -> Iterator[None]:
+    """``artifact_dir`` 에 쓰는 작업(학습·배포) 을 한 번에 하나만 허용한다.
+
+    ``artifact_dir/.lock`` 을 원자적으로(O_EXCL) 만들고 작업이 끝나면 지운다. 이미 있으면
+    기다리지 않고 :class:`ArtifactLockError` 로 즉시 실패한다 — 긴 학습을 마친 뒤에야
+    충돌을 알게 되는 일이 없도록 학습 시작 시점에 잡는다. 같은 호스트에서 잠금을 잡은
+    프로세스가 이미 죽었으면(비정상 종료) WARNING 후 넘겨받는다. 같은 프로세스 안의
+    중첩 호출은 허용한다. 추론·SHAP 은 잠그지 않는다 (best.joblib 은 원자적으로 교체됨).
+    """
+    path = (Path(artifact_dir) / LOCK_FILE).resolve()
+    if path in _held_locks:
+        _held_locks[path] += 1
+        try:
+            yield
+        finally:
+            _held_locks[path] -= 1
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    me = {
+        "pid": os.getpid(),
+        "host": socket.gethostname(),
+        "started_at": _now().isoformat(),
+        "purpose": purpose,
+    }
+    for attempt in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            holder = _read_lock(path)
+            if attempt == 0 and _is_stale(path, holder):
+                logger.warning(
+                    "Removing stale lock %s left by a process that is no longer running: %s",
+                    path, holder or "(unreadable)",
+                )
+                path.unlink(missing_ok=True)
+                continue
+            raise ArtifactLockError(
+                f"Another job is using {path.parent}: {holder or '(lock file unreadable)'}. "
+                "Wait for it to finish. If no such job is running (e.g. it was killed on "
+                f"another host), delete {path} and retry."
+            ) from None
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(me, f)
+        break
+
+    _held_locks[path] = 1
+    try:
+        yield
+    finally:
+        del _held_locks[path]
+        if _read_lock(path).get("pid") == me["pid"]:  # 넘겨받힌 경우 남의 잠금은 지우지 않는다
+            path.unlink(missing_ok=True)
 
 
 # ----------------------------------------------------------------------
@@ -205,10 +313,18 @@ def _read_sample(path: Path, n: int):
     return pf.schema_arrow.names, (batch.to_pandas() if batch is not None else None)
 
 
-def check_compatibility(bundle: dict[str, Any], cfg: AutoMLConfig) -> dict[str, Any]:
+def check_compatibility(
+    bundle: dict[str, Any],
+    cfg: AutoMLConfig,
+    allow_missing_features: bool = False,
+) -> dict[str, Any]:
     """운영에 올리기 전 시험: 현재 스코어링 입력으로 실제 점수를 계산해 본다.
 
-    - 입력에 없는 feature 는 WARNING (스코어링 시 학습 기본값으로 채워진다).
+    - **모델이 쓰는 변수**(selected_features) 가 입력에 없으면 :class:`DeploymentError`.
+      스코어링은 그 변수를 학습 기본값(평균·최빈값) 으로 모든 행에 채워 예측하므로,
+      예측 품질이 떨어져도 WARNING 로그로만 드러난다. ``allow_missing_features=True``
+      이면 WARNING 후 진행한다.
+    - 변수 선택에서 빠진 변수만 없으면 WARNING (예측에는 영향 없음).
     - 시험 스코어링이 실패하거나 점수가 [0, 1] 밖이면 :class:`DeploymentError`.
     - 스코어링 입력 파일이 없으면 로드 확인만 하고 WARNING.
     """
@@ -227,11 +343,20 @@ def check_compatibility(bundle: dict[str, Any], cfg: AutoMLConfig) -> dict[str, 
     columns, sample = _read_sample(input_path, SMOKE_ROWS)
     missing = [c for c in meta.feature_columns if c not in columns]
     result["missing_features"] = missing
+    used = set(getattr(meta, "selected_features", None) or meta.feature_columns)
+    missing_used = [c for c in missing if c in used]
+    if missing_used and not allow_missing_features:
+        raise DeploymentError(
+            f"Model '{meta.model_name}' uses {len(missing_used)} feature(s) missing from "
+            f"{input_path}: {missing_used}. Scoring would fill them with training defaults "
+            "for every row. Fix the scoring input, or pass --allow-missing-features to "
+            "deploy anyway."
+        )
     if missing:
         logger.warning(
-            "Compatibility check: %d feature(s) used by model '%s' are missing from %s "
-            "and would be filled with training defaults: %s",
-            len(missing), meta.model_name, input_path, missing,
+            "Compatibility check: %d feature(s) of model '%s' are missing from %s and "
+            "would be filled with training defaults: %s (used by the model: %s)",
+            len(missing), meta.model_name, input_path, missing, missing_used or "none",
         )
     if sample is None or sample.empty:
         return result
@@ -273,6 +398,7 @@ def deploy(
     source: str | Path,
     action: str,
     best_selection: str,
+    allow_missing_features: bool = False,
 ) -> Path:
     """``source`` 모델을 운영 모델(best.joblib) 로 올리고 배포 이력에 기록한다.
 
@@ -281,10 +407,12 @@ def deploy(
         source: 올릴 모델 파일 (보통 ``runs/<id>/models/<name>.joblib``).
         action: ``train`` / ``promote`` / ``rollback`` / ``legacy``.
         best_selection: 메타데이터 ``extra.best_selection`` 값.
+        allow_missing_features: True 면 모델이 쓰는 변수가 스코어링 입력에 없어도
+            WARNING 후 배포한다 (:func:`check_compatibility`).
 
     Raises:
-        DeploymentError: 모델을 열 수 없거나 시험 스코어링이 실패한 경우.
-            이때 ``best.joblib`` 과 이력은 바뀌지 않는다.
+        DeploymentError: 모델을 열 수 없거나, 모델이 쓰는 변수가 입력에 없거나,
+            시험 스코어링이 실패한 경우. 이때 ``best.joblib`` 과 이력은 바뀌지 않는다.
     """
     artifact_dir = Path(cfg.artifact_dir)
     source = Path(source)
@@ -295,7 +423,7 @@ def deploy(
             f"Cannot load {source}: {type(exc).__name__}: {exc}. "
             "It may have been saved by an incompatible code or library version."
         ) from exc
-    check_compatibility(bundle, cfg)
+    check_compatibility(bundle, cfg, allow_missing_features=allow_missing_features)
 
     meta = bundle["metadata"]
     previous = current_deployment(artifact_dir)

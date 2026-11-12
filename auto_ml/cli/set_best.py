@@ -32,7 +32,12 @@ def _candidates(sub_dir: Path) -> list[str]:
     return sorted(p.stem for p in sub_dir.glob("*.joblib")) if sub_dir.exists() else []
 
 
-def promote(config: AutoMLConfig, model_name: str, run_id: str | None = None) -> Path:
+def promote(
+    config: AutoMLConfig,
+    model_name: str,
+    run_id: str | None = None,
+    allow_missing_features: bool = False,
+) -> Path:
     """후보 모델을 운영 모델(best.joblib) 로 올린다.
 
     Args:
@@ -40,6 +45,7 @@ def promote(config: AutoMLConfig, model_name: str, run_id: str | None = None) ->
         model_name: 올릴 모형 이름 (후보 파일 stem).
         run_id: None 이면 최신 실행 후보(``artifact_dir/models/``), 지정하면
             ``artifact_dir/runs/<run_id>/models/`` 에서 찾는다.
+        allow_missing_features: 모델이 쓰는 변수가 스코어링 입력에 없어도 배포한다.
 
     Returns:
         운영 모델 경로 (best.joblib).
@@ -47,7 +53,18 @@ def promote(config: AutoMLConfig, model_name: str, run_id: str | None = None) ->
     Raises:
         FileNotFoundError: 실행 또는 후보 모델이 없을 때.
         auto_ml.versioning.DeploymentError: 시험 스코어링 실패 등으로 올릴 수 없을 때.
+        auto_ml.versioning.ArtifactLockError: 다른 학습·배포가 진행 중일 때.
     """
+    with versioning.artifact_lock(config.artifact_dir, f"set_best --model {model_name}"):
+        return _promote(config, model_name, run_id, allow_missing_features)
+
+
+def _promote(
+    config: AutoMLConfig,
+    model_name: str,
+    run_id: str | None,
+    allow_missing_features: bool,
+) -> Path:
     artifact_dir = Path(config.artifact_dir)
     if run_id is not None:
         run_dir = versioning.runs_root(artifact_dir) / run_id
@@ -79,7 +96,10 @@ def promote(config: AutoMLConfig, model_name: str, run_id: str | None = None) ->
         if rid and snap.exists():
             source = snap
 
-    best_path = versioning.deploy(config, source, action="promote", best_selection="promoted")
+    best_path = versioning.deploy(
+        config, source, action="promote", best_selection="promoted",
+        allow_missing_features=allow_missing_features,
+    )
     versioning.prune_runs(artifact_dir, config.versioning.keep_last_runs)
     return best_path
 
@@ -142,6 +162,11 @@ def cli_set_best() -> None:
         help="이전 실행 id (runs/<id>). 생략하면 최신 실행 후보(models/) 에서 찾는다.",
     )
     parser.add_argument("--list", action="store_true", help="실행 목록과 배포 이력만 출력")
+    parser.add_argument(
+        "--allow-missing-features", action="store_true",
+        help="모델이 쓰는 변수가 scoring.input_path 에 없어도 배포한다 "
+             "(그 변수는 학습 기본값으로 채워져 예측된다)",
+    )
     args = parser.parse_args()
     if not args.list and not args.model:
         parser.error("--model is required unless --list is given")
@@ -157,7 +182,10 @@ def cli_set_best() -> None:
         to_file=config.logging.to_file,
         stage="set_best",
     )
-    promote(config, args.model, run_id=args.run)
+    promote(
+        config, args.model, run_id=args.run,
+        allow_missing_features=args.allow_missing_features,
+    )
 
 
 if __name__ == "__main__":

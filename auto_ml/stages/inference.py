@@ -76,7 +76,7 @@ def preprocess(
 
     if scorer is None:
         logger.info("Loading artifact: %s", artifact_path)
-        scorer = Scorer.from_artifact(artifact_path)
+        scorer = Scorer.from_artifact(artifact_path, n_jobs=cfg.scoring.n_jobs)
 
     logger.info("Reading input parquet: %s", input_path)
     df = pd.read_parquet(input_path)
@@ -109,11 +109,18 @@ def preprocess(
 def predict(
     prep: InferencePreprocessed,
     scorer: Scorer | None = None,
+    n_jobs: int | None = None,
 ) -> InferencePredicted:
-    """전처리된 입력의 양성 확률을 계산한다."""
+    """전처리된 입력의 양성 확률을 계산한다.
+
+    Args:
+        prep: 전처리 단계 산출물.
+        scorer: 이미 로드한 Scorer. None 이면 artifact 를 로드한다.
+        n_jobs: scorer 를 새로 로드할 때 쓸 예측 스레드 수 (``ScoringConfig.n_jobs``).
+    """
     if scorer is None:
         logger.info("Loading artifact: %s", prep.artifact_path)
-        scorer = Scorer.from_artifact(prep.artifact_path)
+        scorer = Scorer.from_artifact(prep.artifact_path, n_jobs=n_jobs)
     proba = scorer.predict(prep.X_for_model)
     logger.info("Predicted %d rows (model=%s)", len(proba), scorer.metadata.model_name)
     return InferencePredicted(
