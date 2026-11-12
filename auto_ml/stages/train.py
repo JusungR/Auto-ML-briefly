@@ -128,7 +128,6 @@ def preprocess(cfg: AutoMLConfig) -> TrainPreprocessed:
             config=cfg.feature_selection,
             numeric_columns=numeric_columns,
             categorical_columns=categorical_columns,
-            n_jobs=cfg.training.n_jobs,
         )
         selection = selector.fit_select(X_train_p, y_train)
         selected_features = selection.selected_features

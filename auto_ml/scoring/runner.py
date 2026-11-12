@@ -48,7 +48,7 @@ def run_scoring(config: AutoMLConfig) -> Path:
     # 전처리 → 예측 → 후처리 (단계별 구현은 auto_ml.stages.inference)
     artifact_path = stages_inference.artifact_path_of(config)
     logger.info("Loading artifact: %s", artifact_path)
-    scorer = Scorer.from_artifact(artifact_path, n_jobs=config.scoring.n_jobs)
+    scorer = Scorer.from_artifact(artifact_path)
     prep = stages_inference.preprocess(config, scorer=scorer)
     pred = stages_inference.predict(prep, scorer=scorer)
     output_path = stages_inference.postprocess(config, pred)

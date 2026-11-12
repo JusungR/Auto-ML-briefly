@@ -53,18 +53,7 @@ def promote(
     Raises:
         FileNotFoundError: 실행 또는 후보 모델이 없을 때.
         auto_ml.versioning.DeploymentError: 시험 스코어링 실패 등으로 올릴 수 없을 때.
-        auto_ml.versioning.ArtifactLockError: 다른 학습·배포가 진행 중일 때.
     """
-    with versioning.artifact_lock(config.artifact_dir, f"set_best --model {model_name}"):
-        return _promote(config, model_name, run_id, allow_missing_features)
-
-
-def _promote(
-    config: AutoMLConfig,
-    model_name: str,
-    run_id: str | None,
-    allow_missing_features: bool,
-) -> Path:
     artifact_dir = Path(config.artifact_dir)
     if run_id is not None:
         run_dir = versioning.runs_root(artifact_dir) / run_id

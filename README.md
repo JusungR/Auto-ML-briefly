@@ -6,10 +6,9 @@
 ## 최근 변경 요약
 
 - **실행 이력·롤백** — 학습마다 `artifact_dir/runs/` 에 실행 전체 보관, 배포 이력, `python -m auto_ml.cli.rollback`.
-- **배포 안전장치** — 모델이 쓰는 변수가 스코어링 입력에 없으면 배포 거부, 학습·배포 동시 실행 잠금.
+- **배포 안전장치** — 모델이 쓰는 변수가 스코어링 입력에 없으면 배포 거부.
 - **정확도·안정성 수정** — XGBoost·앙상블 SHAP, `best_iteration` 단위, 앙상블 중요도, PDF 실패 시 모델 보존, 결측 타깃 검사, 원자적 저장 등.
-- **CPU 스레드 설정** — `training.n_jobs`·`scoring.n_jobs`. **팟에서는 반드시 명시** (아래 "CPU 스레드 수").
-- 운영 스크립트에 영향을 주는 동작 변화와 업그레이드 순서는 **USER_GUIDE 부록 F**, 팟 CPU 설정은 **USER_GUIDE §20** 참고.
+- 운영 스크립트에 영향을 주는 동작 변화와 업그레이드 순서는 **USER_GUIDE 부록 F** 참고.
 
 ## 구성
 
@@ -805,8 +804,6 @@ artifact_dir/
 - **원자적 교체:** 임시 파일에 다 쓴 뒤 한 번에 바꾼다. 교체 중에 추론이 읽어도 깨진 파일을 보지 않는다.
 - **이력 기록:** `deployments.jsonl` 에 시각·동작(train/promote/rollback/legacy)·실행·모델·점수·
   직전 운영 모델을 남긴다.
-- **잠금:** 학습·`set_best`·`rollback` 은 `artifact_dir/.lock` 을 잡는다. 다른 작업이 진행 중이면
-  기다리지 않고 바로 에러. 같은 서버에서 비정상 종료로 남은 잠금은 자동으로 넘겨받는다.
 
 ```yaml
 versioning:
@@ -856,30 +853,7 @@ python -m auto_ml.cli.set_best --config configs/example.yaml --list
 - 실행마다 test 데이터·변수 구성이 다를 수 있다. 실행 간 점수를 단순 비교하지 말고 `run_info.json` 을 함께 확인한다.
 - 코드나 라이브러리를 업데이트한 뒤에는 오래된 실행의 모델이 열리지 않을 수 있다. 이때 롤백은
   시험 스코어링 단계에서 거부되고, 운영 모델은 바뀌지 않는다.
-- 같은 `artifact_dir` 의 학습은 잠금으로 하나씩만 돈다. 단계 스크립트를 따로 실행하며 두 학습의
-  단계를 섞으면(A 전처리 → B 전처리 → A 학습) 공유 `work/` 가 덮어써져 막을 수 없다.
-
-### CPU 스레드 수 (`n_jobs`)
-
-LightGBM·XGBoost·CatBoost 는 스레드 수를 지정하지 않으면 프로세스마다 **노드(서버) 의 모든 코어**만큼
-스레드를 만든다. 실제로 쓸 수 있는 CPU 보다 스레드가 많으면 서로 수십 배 느려진다
-(4코어 측정: 학습 2개 동시 각 약 450초 → `n_jobs: 2` 씩 7~8초, 단독 약 7초).
-
-**팟(컨테이너) 에서는 반드시 양의 정수로 명시한다.** 쿠버네티스 CPU limit 은 `nproc`·`os.cpu_count()`
-와 라이브러리에 반영되지 않으므로, `null`·`-1` 이면 limit 2 팟에서도 노드 코어 수(예: 32) 만큼 스레드가
-생긴다. 팟 CPU 는 `resources.limits.cpu` 또는 팟 안의 `/sys/fs/cgroup/cpu.max`(v1:
-`cpu.cfs_quota_us / cpu.cfs_period_us`) 로 확인하고, 같은 팟에서 동시에 도는 작업들의 합이 이를
-넘지 않게 정한다. 예측 결과는 바뀌지 않는다.
-
-```yaml
-training:
-  n_jobs: 3       # 학습·튜닝·변수 선택. null·-1 = 노드 전체 코어 (팟 limit 아님)
-scoring:
-  n_jobs: 1       # 추론·SHAP. null = 학습 때 값 그대로
-```
-
-모델 `fixed_params` 에 스레드 인자(`num_threads`·`nthread`·`thread_count` 등) 를 직접 쓰면 그 값이
-우선한다. 값 정하는 규칙과 체크리스트는 USER_GUIDE §20 참고.
+- 같은 `artifact_dir` 로 학습 두 개를 동시에 실행하는 것은 지원하지 않는다.
 
 ### 후보 모형의 상세 리포트
 

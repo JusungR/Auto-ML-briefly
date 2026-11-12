@@ -67,15 +67,10 @@ class StabilitySelector:
         config: FeatureSelectionConfig,
         numeric_columns: list[str],
         categorical_columns: list[str],
-        n_jobs: int | None = None,
     ) -> None:
         self.config = config
         self.numeric_columns = list(numeric_columns)
         self.categorical_columns = list(categorical_columns)
-        # lgbm base_estimator 의 스레드 수 (TrainingConfig.n_jobs). None = 전체 코어.
-        from auto_ml.utils.threads import resolve_n_jobs
-
-        self.n_jobs = resolve_n_jobs(n_jobs)
 
     # ------------------------------------------------------------------
     def fit_select(self, X: pd.DataFrame, y: pd.Series) -> SelectionResult:
@@ -225,7 +220,6 @@ class StabilitySelector:
             n_estimators=self.config.lgbm_n_estimators,
             learning_rate=self.config.lgbm_learning_rate,
             random_state=self.config.random_state,
-            n_jobs=getattr(self, "n_jobs", None),
             verbose=-1,
         )
         model.fit(

@@ -28,7 +28,6 @@ class XGBModel(BaseModel):
 
     name = "xgb"
     ITER_PARAM_NAME = "n_estimators"
-    THREAD_PARAM_NAMES = ("n_jobs", "nthread")
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "objective": "binary:logistic",
@@ -71,7 +70,7 @@ class XGBModel(BaseModel):
         다만 일부 버전에서 custom obj 시 ``base_score`` 자동 추정이 동작하지 않을
         수 있으므로 0.5 (margin 0) 으로 명시한다.
         """
-        merged = {**self.DEFAULT_PARAMS, **self._thread_params(), **self.params}
+        merged = {**self.DEFAULT_PARAMS, **self.params}
         merged.setdefault("random_state", self.random_state)
 
         if self.loss == "focal":
@@ -170,10 +169,6 @@ class XGBModel(BaseModel):
         best_idx = self._booster_best_index()
         self.best_iteration = None if best_idx is None else best_idx + 1
         return self
-
-    def _apply_n_jobs_to_fitted(self, n_jobs: int) -> None:
-        # sklearn API 의 set_params 는 학습된 booster 의 nthread 까지 바꾼다.
-        self.model.set_params(n_jobs=n_jobs)
 
     def _booster_best_index(self) -> int | None:
         """조기 종료가 동작했으면 best 지점의 0부터 세는 번호, 아니면 None.

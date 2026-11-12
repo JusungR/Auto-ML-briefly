@@ -51,15 +51,11 @@ class Explainer:
         self.metadata = metadata
 
     @classmethod
-    def from_artifact(cls, path: str | Path, n_jobs: int | None = None) -> "Explainer":
-        """n_jobs: SHAP 계산 스레드 수 (``ScoringConfig.n_jobs``). None 이면 학습 때 값."""
+    def from_artifact(cls, path: str | Path) -> "Explainer":
         bundle = load_artifact(path)
-        model = bundle["model"]
-        if n_jobs is not None and hasattr(model, "set_n_jobs"):
-            model.set_n_jobs(n_jobs)
         return cls(
             preprocessor=bundle["preprocessor"],
-            model=model,
+            model=bundle["model"],
             metadata=bundle["metadata"],
         )
 

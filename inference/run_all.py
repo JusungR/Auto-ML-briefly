@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> Path:
     )
     start_stage_logging(config, "inference")
     # artifact 를 한 번만 로드해 세 단계가 공유한다.
-    scorer = Scorer.from_artifact(stages.artifact_path_of(config), n_jobs=config.scoring.n_jobs)
+    scorer = Scorer.from_artifact(stages.artifact_path_of(config))
     prep = stages.preprocess(config, scorer=scorer)
     save_stage(prep, work_dir, stages.PREPROCESS_OUTPUT)
     pred = stages.predict(prep, scorer=scorer)

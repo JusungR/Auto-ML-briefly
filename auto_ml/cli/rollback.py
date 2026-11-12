@@ -36,13 +36,7 @@ def rollback(config: AutoMLConfig, allow_missing_features: bool = False) -> Path
         FileNotFoundError: 직전 운영 모델 파일(실행 폴더) 이 삭제된 경우.
         auto_ml.versioning.DeploymentError: 열리지 않거나, 모델이 쓰는 변수가 입력에
             없거나, 시험 스코어링에 실패한 경우.
-        auto_ml.versioning.ArtifactLockError: 다른 학습·배포가 진행 중일 때.
     """
-    with versioning.artifact_lock(config.artifact_dir, "rollback"):
-        return _rollback(config, allow_missing_features)
-
-
-def _rollback(config: AutoMLConfig, allow_missing_features: bool) -> Path:
     artifact_dir = Path(config.artifact_dir)
     current = versioning.current_deployment(artifact_dir)
     if current is None:

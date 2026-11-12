@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> Path:
     config, work_dir = parse_stage_args("[inference 2/3] predict", "inference", argv)
     start_stage_logging(config, "inference_predict")
     prep = load_stage(work_dir, stages.PREPROCESS_OUTPUT)
-    pred = stages.predict(prep, n_jobs=config.scoring.n_jobs)
+    pred = stages.predict(prep)
     path = save_stage(pred, work_dir, stages.PREDICT_OUTPUT)
     print(f"predicted: {path}")
     return path

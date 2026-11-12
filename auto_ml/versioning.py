@@ -21,11 +21,7 @@ import json
 import os
 import platform
 import shutil
-import socket
 import subprocess
-import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,115 +39,11 @@ RUNS_DIRNAME = "runs"
 LATEST_DIRNAME = "models"
 DEPLOY_LOG = "deployments.jsonl"
 RUN_INFO = "run_info.json"
-LOCK_FILE = ".lock"
 SMOKE_ROWS = 100
-# 내용을 읽을 수 없는 잠금 파일(만든 직후 비정상 종료 등) 을 버려진 것으로 볼 최소 경과 시간
-UNREADABLE_LOCK_GRACE_SEC = 60
 
 
 class DeploymentError(RuntimeError):
     """배포 대상 모델을 운영에 올릴 수 없을 때 (로드 실패, 시험 스코어링 실패 등)."""
-
-
-class ArtifactLockError(RuntimeError):
-    """다른 학습·배포 작업이 같은 artifact_dir 을 쓰고 있을 때."""
-
-
-# ----------------------------------------------------------------------
-# 쓰기 작업 잠금
-# ----------------------------------------------------------------------
-_held_locks: dict[Path, int] = {}  # 이 프로세스가 잡은 잠금 → 중첩 횟수 (재진입 허용)
-
-
-def _read_lock(path: Path) -> dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:  # 다른 계정의 살아 있는 프로세스
-        return True
-    return True
-
-
-def _is_stale(path: Path, holder: dict[str, Any]) -> bool:
-    """잠금을 잡은 프로세스가 이미 없으면 True. 판단할 수 없으면 False (보수적으로)."""
-    if not holder:
-        try:
-            return time.time() - path.stat().st_mtime > UNREADABLE_LOCK_GRACE_SEC
-        except OSError:
-            return True  # 그새 사라짐
-    if os.name == "nt":
-        # Windows 의 os.kill(pid, 0) 은 생존 확인이 아니라 프로세스를 종료시킨다 — 판단하지 않는다.
-        return False
-    if holder.get("host") != socket.gethostname():
-        return False  # 다른 호스트(공유 디스크) 의 pid 는 확인할 수 없다
-    try:
-        return not _pid_alive(int(holder.get("pid")))
-    except (TypeError, ValueError):
-        return False
-
-
-@contextmanager
-def artifact_lock(artifact_dir: str | Path, purpose: str) -> Iterator[None]:
-    """``artifact_dir`` 에 쓰는 작업(학습·배포) 을 한 번에 하나만 허용한다.
-
-    ``artifact_dir/.lock`` 을 원자적으로(O_EXCL) 만들고 작업이 끝나면 지운다. 이미 있으면
-    기다리지 않고 :class:`ArtifactLockError` 로 즉시 실패한다 — 긴 학습을 마친 뒤에야
-    충돌을 알게 되는 일이 없도록 학습 시작 시점에 잡는다. 같은 호스트에서 잠금을 잡은
-    프로세스가 이미 죽었으면(비정상 종료) WARNING 후 넘겨받는다. 같은 프로세스 안의
-    중첩 호출은 허용한다. 추론·SHAP 은 잠그지 않는다 (best.joblib 은 원자적으로 교체됨).
-    """
-    path = (Path(artifact_dir) / LOCK_FILE).resolve()
-    if path in _held_locks:
-        _held_locks[path] += 1
-        try:
-            yield
-        finally:
-            _held_locks[path] -= 1
-        return
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    me = {
-        "pid": os.getpid(),
-        "host": socket.gethostname(),
-        "started_at": _now().isoformat(),
-        "purpose": purpose,
-    }
-    for attempt in range(2):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            holder = _read_lock(path)
-            if attempt == 0 and _is_stale(path, holder):
-                logger.warning(
-                    "Removing stale lock %s left by a process that is no longer running: %s",
-                    path, holder or "(unreadable)",
-                )
-                path.unlink(missing_ok=True)
-                continue
-            raise ArtifactLockError(
-                f"Another job is using {path.parent}: {holder or '(lock file unreadable)'}. "
-                "Wait for it to finish. If no such job is running (e.g. it was killed on "
-                f"another host), delete {path} and retry."
-            ) from None
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(me, f)
-        break
-
-    _held_locks[path] = 1
-    try:
-        yield
-    finally:
-        del _held_locks[path]
-        if _read_lock(path).get("pid") == me["pid"]:  # 넘겨받힌 경우 남의 잠금은 지우지 않는다
-            path.unlink(missing_ok=True)
 
 
 # ----------------------------------------------------------------------

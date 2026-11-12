@@ -18,7 +18,6 @@ import argparse
 import time
 from pathlib import Path
 
-from auto_ml import versioning
 from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.stages import train as stages_train
 from auto_ml.utils.logger import get_logger, setup_logging
@@ -59,11 +58,9 @@ class AutoMLPipeline:
         logger.info("Auto-ML training pipeline started")
         logger.info("=" * 60)
 
-        # 같은 artifact_dir 의 다른 학습·배포와 겹치지 않게 처음부터 끝까지 잠근다
-        with versioning.artifact_lock(cfg.artifact_dir, "AutoMLPipeline.run"):
-            prep = stages_train.preprocess(cfg)
-            result = stages_train.train(cfg, prep)
-            outputs.update(stages_train.postprocess(cfg, prep, result))
+        prep = stages_train.preprocess(cfg)
+        result = stages_train.train(cfg, prep)
+        outputs.update(stages_train.postprocess(cfg, prep, result))
         best_result = result.best
 
         # ----- 종료 요약 ------------------------------------------------

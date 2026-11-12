@@ -243,11 +243,6 @@ class TrainingConfig:
                     (``mean`` | ``median``).
         iteration_cap_headroom: ``iteration_capping`` 일 때 집계값에 곱하는 여유 배수.
                     ``capped = ceil(agg * headroom)``. 기본 1.0 (집계값 그대로).
-        n_jobs: 학습(튜닝·CV·최종 fit·변수 선택) 에 쓸 CPU 스레드 수. ``None`` (기본) 이면
-                    전체 코어. 음수는 sklearn 규칙 (``-1`` = 전체, ``-2`` = 하나 남김).
-                    같은 서버에서 학습과 스코어링(cron 등) 을 동시에 돌리면 스레드 합이
-                    코어 수를 넘지 않게 줄인다 — 넘으면 서로 수십 배 느려질 수 있다.
-                    모델 ``fixed_params`` 에 스레드 인자를 직접 쓰면 그 값이 우선한다.
     """
 
     cv_folds: int = 5
@@ -258,7 +253,6 @@ class TrainingConfig:
     final_fit_strategy: str = "early_stop_on_test"
     iteration_cap_aggregation: str = "mean"
     iteration_cap_headroom: float = 1.0
-    n_jobs: int | None = None
 
     def __post_init__(self) -> None:
         allowed_metrics = {"roc_auc", "pr_auc", "f1", "accuracy", "precision", "recall", "ks"}
@@ -404,16 +398,12 @@ class ScoringConfig:
             자동으로 사용된다. 즉 top-level 에 한 번만 명시해 두면 따로 적지 않아도
             output 에 그대로 보존된다.
         threshold: ``predict_proba`` 결과를 0/1 로 변환할 임계값.
-        n_jobs: 추론·SHAP·배포 시험 스코어링에 쓸 CPU 스레드 수. ``None`` (기본) 이면
-            학습 때 정한 값을 그대로 쓴다 (학습 ``n_jobs`` 도 없으면 전체 코어).
-            규칙은 ``TrainingConfig.n_jobs`` 와 같다.
     """
 
     input_path: str = "./data/score_input.parquet"
     output_path: str = "./artifacts/scores/scores.parquet"
     id_columns: list[str] = field(default_factory=list)
     threshold: float = 0.5
-    n_jobs: int | None = None
 
 
 @dataclass

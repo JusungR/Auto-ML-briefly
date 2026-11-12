@@ -15,19 +15,16 @@ sys.path[0] = str(Path(__file__).resolve().parents[1])
 from auto_ml.stages import save_stage  # noqa: E402
 from auto_ml.stages import train as stages  # noqa: E402
 from auto_ml.stages.cli import parse_stage_args, start_stage_logging  # noqa: E402
-from auto_ml.versioning import artifact_lock  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> dict[str, Path]:
     config, work_dir = parse_stage_args("[train] preprocess -> train -> postprocess", "train", argv)
     start_stage_logging(config, "train")
-    # 시작 시점에 잠가, 같은 artifact_dir 의 다른 학습·배포와 겹치면 바로 실패한다
-    with artifact_lock(config.artifact_dir, "train/run_all.py"):
-        prep = stages.preprocess(config)
-        save_stage(prep, work_dir, stages.PREPROCESS_OUTPUT)
-        result = stages.train(config, prep)
-        save_stage(result, work_dir, stages.TRAIN_OUTPUT)
-        outputs = stages.postprocess(config, prep, result)
+    prep = stages.preprocess(config)
+    save_stage(prep, work_dir, stages.PREPROCESS_OUTPUT)
+    result = stages.train(config, prep)
+    save_stage(result, work_dir, stages.TRAIN_OUTPUT)
+    outputs = stages.postprocess(config, prep, result)
     for key, path in outputs.items():
         print(f"{key}: {path}")
     return outputs

@@ -146,16 +146,6 @@ class EnsembleModel(BaseModel):
         """No-op: 서브모델은 이미 학습 완료."""
         return self
 
-    def set_n_jobs(self, n_jobs: int | None) -> "EnsembleModel":
-        """스레드 수를 모든 서브모델에 전달한다 (서브모델은 순서대로 예측한다)."""
-        for model in self.base_models.values():
-            model.set_n_jobs(n_jobs)
-        if n_jobs is not None:
-            from auto_ml.utils.threads import resolve_n_jobs
-
-            self.n_jobs = resolve_n_jobs(n_jobs)
-        return self
-
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         proba = np.zeros(len(X), dtype=float)
         for name, model in self.base_models.items():
