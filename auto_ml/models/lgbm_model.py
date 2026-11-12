@@ -21,6 +21,7 @@ class LGBMModel(BaseModel):
 
     name = "lgbm"
     ITER_PARAM_NAME = "n_estimators"
+    THREAD_PARAM_NAMES = ("n_jobs", "num_threads", "num_thread", "nthread", "nthreads")
 
     # 운영에서 보수적으로 동작하도록 한 기본 하이퍼파라미터.
     # 사용자 params 가 우선이며, 본 dict 는 그 위에 덮어써지는 fallback 이다.
@@ -44,7 +45,7 @@ class LGBMModel(BaseModel):
         덮어쓴다. ``focal_gamma`` / ``focal_alpha`` 는 라이브러리 원본 키가 아니므로
         반드시 pop 해서 ``LGBMClassifier`` 생성자에 전달되지 않게 한다.
         """
-        merged = {**self.DEFAULT_PARAMS, **self.params}
+        merged = {**self.DEFAULT_PARAMS, **self._thread_params(), **self.params}
         merged.setdefault("random_state", self.random_state)
 
         if self.loss == "focal":
@@ -109,6 +110,10 @@ class LGBMModel(BaseModel):
         tree_df = self.model.booster_.trees_to_dataframe()
         self.actual_max_depth = int(tree_df["node_depth"].max())
         return self
+
+    def _apply_n_jobs_to_fitted(self, n_jobs: int) -> None:
+        # LGBMClassifier.predict 는 self.n_jobs 를 num_threads 로 쓴다.
+        self.model.set_params(n_jobs=n_jobs)
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         X_in = self._to_categorical(X[self.feature_columns])

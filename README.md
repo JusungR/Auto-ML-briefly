@@ -845,6 +845,21 @@ python -m auto_ml.cli.set_best --config configs/example.yaml --list
   시험 스코어링 단계에서 거부되고, 운영 모델은 바뀌지 않는다.
 - 같은 `artifact_dir` 로 학습 두 개를 동시에 실행하는 것은 지원하지 않는다.
 
+### CPU 스레드 수 (`n_jobs`)
+
+LightGBM·XGBoost·CatBoost 가 쓸 스레드 수를 설정 YAML 에서 정한다. 속도만 바뀌고 예측 결과는 같다.
+
+```yaml
+training:
+  n_jobs: null    # 학습·튜닝·변수 선택. null = 노드 전체 코어(라이브러리 기본), 양수 = 그 수, -1 = 전체, -2 = 하나 남김
+scoring:
+  n_jobs: null    # 추론·SHAP. null = 학습 때 값 그대로
+```
+
+- `null`·`-1` 은 서버(노드) 가 보여주는 전체 코어 수다. 컨테이너·팟의 CPU limit 은 반영되지 않으므로 그런 환경에서는 양의 정수로 적는다.
+- 양수가 사용 가능한 CPU 수보다 크면 사용 가능한 CPU 수로 줄인다.
+- 모델 `fixed_params` 에 스레드 인자(`num_threads`·`nthread`·`thread_count` 등) 를 쓰면 학습에서는 그 값이 우선한다. 추론 스레드는 `scoring.n_jobs` 로 정한다.
+
 ### 후보 모형의 상세 리포트
 
 비-best 모형마다 별도 sub-report 가 자동 생성된다:

@@ -57,7 +57,7 @@ def run_explain(config: AutoMLConfig) -> Path:
         raise FileNotFoundError(f"Explain input not found: {input_path}")
 
     logger.info("Loading artifact: %s", artifact_path)
-    explainer = Explainer.from_artifact(artifact_path)
+    explainer = Explainer.from_artifact(artifact_path, n_jobs=config.scoring.n_jobs)
 
     logger.info("Reading input parquet: %s", input_path)
     df = pd.read_parquet(input_path)

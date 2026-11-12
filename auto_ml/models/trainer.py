@@ -311,6 +311,7 @@ class Trainer:
                 categorical_columns=cat_cols,
                 random_state=cfg.training.random_state,
                 loss=loss,
+                n_jobs=cfg.training.n_jobs,
             )
             # 테스트셋 미노출 — 검증셋/early stopping 없이 train 전체로 fit.
             final_model.fit(X_train, y_train, None, None, early_stopping_rounds=None)
@@ -323,6 +324,7 @@ class Trainer:
             categorical_columns=cat_cols,
             random_state=cfg.training.random_state,
             loss=loss,
+            n_jobs=cfg.training.n_jobs,
         )
         final_model.fit(
             X_train, y_train, X_test, y_test,
@@ -375,6 +377,7 @@ class Trainer:
                 categorical_columns=cat_cols,
                 random_state=cfg.training.random_state + fold_idx,
                 loss=cfg.models[name].loss,
+                n_jobs=cfg.training.n_jobs,
             )
             model.fit(
                 X_tr, y_tr, X_va, y_va,

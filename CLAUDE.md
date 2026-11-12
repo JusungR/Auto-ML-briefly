@@ -107,6 +107,10 @@ python -m auto_ml.cli.set_best --config <yaml> --list                      # run
 python -m auto_ml.cli.rollback --config <yaml>                             # toggle to previous production
 ```
 
+### Threads (`auto_ml/utils/threads.py`)
+
+`training.n_jobs` / `scoring.n_jobs` (default null = library default = node cores; pod CPU limits are not reflected; negatives follow sklearn; positives capped at available CPUs). Wrappers declare `THREAD_PARAM_NAMES` and inject via `BaseModel._thread_params()` unless the user set one in `fixed_params`; `build_model(..., n_jobs=)` sets it at training. `BaseModel.set_n_jobs()` changes threads on a fitted model (LGBM/XGB `set_params`, CatBoost per-call `thread_count`, ensemble propagates); `Scorer/Explainer.from_artifact(path, n_jobs=)` apply `scoring.n_jobs`. Predictions are unchanged.
+
 ### Scoring and Explain
 
 - **`auto_ml/scoring/`** — `Scorer.from_artifact(path)` loads the artifact; `score()` = `prepare()` (preprocess) → `predict()` → `finalize()` (threshold + id columns); outputs a Parquet with score and optional id columns.

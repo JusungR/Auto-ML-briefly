@@ -20,6 +20,7 @@ class CatBoostModel(BaseModel):
 
     name = "catboost"
     ITER_PARAM_NAME = "iterations"
+    THREAD_PARAM_NAMES = ("thread_count",)
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "loss_function": "Logloss",
@@ -40,7 +41,7 @@ class CatBoostModel(BaseModel):
         ``predict_proba`` 는 custom loss 일 때도 sigmoid 적용된 2D 확률을 반환하므로
         (실측) 후처리는 불필요하다.
         """
-        merged = {**self.DEFAULT_PARAMS, **self.params}
+        merged = {**self.DEFAULT_PARAMS, **self._thread_params(), **self.params}
         merged.setdefault("random_seed", self.random_state)
 
         if self.loss == "focal":
@@ -86,9 +87,14 @@ class CatBoostModel(BaseModel):
         self.best_iteration = None if best_idx is None else int(best_idx) + 1
         return self
 
+    def _predict_threads(self) -> int:
+        # CatBoost 는 예측 호출마다 thread_count 를 받는다 (-1 = 전체 코어, 라이브러리 기본).
+        n = getattr(self, "n_jobs", None)  # 과거 artifact 객체에는 속성이 없다
+        return -1 if n is None else int(n)
+
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         pool = self._to_pool(X[self.feature_columns])
-        return self.model.predict_proba(pool)[:, 1]
+        return self.model.predict_proba(pool, thread_count=self._predict_threads())[:, 1]
 
     def feature_importance(self) -> dict[str, float]:
         importances = self.model.get_feature_importance()
@@ -98,5 +104,7 @@ class CatBoostModel(BaseModel):
         # CatBoost 는 get_feature_importance(type='ShapValues', data=Pool) 로
         # (n, n_features + 1) 의 raw-margin SHAP 을 직접 반환. 마지막 열 = base value.
         pool = self._to_pool(X[self.feature_columns])
-        contrib = self.model.get_feature_importance(type="ShapValues", data=pool)
+        contrib = self.model.get_feature_importance(
+            type="ShapValues", data=pool, thread_count=self._predict_threads(),
+        )
         return np.asarray(contrib)

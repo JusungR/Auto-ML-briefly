@@ -680,6 +680,7 @@ CV 폴드 수, 조기 종료 라운드, 모델 선택 지표, **[최종 모델 �
 | `final_fit_strategy` | str | `early_stop_on_test` | `early_stop_on_test` / `iteration_capping` / `cv_bagging` | 최종 모델 학습 방식 |
 | `iteration_cap_aggregation` | str | `mean` | `mean` / `median` | (capping 전용) fold best_iter 집계 방식 |
 | `iteration_cap_headroom` | float | `1.0` | `> 0` | (capping 전용) 집계값 × headroom 후 ceil |
+| `n_jobs` | int / null | `null` | `null` / 양수 / 음수 | 학습(튜닝·CV·최종 학습·변수 선택) CPU 스레드 수. `null` = 노드 전체 코어(라이브러리 기본, 컨테이너 CPU limit 미반영), 양수 = 그 수(가용 CPU 수가 상한), `-1` = 전체, `-2` = 하나 남김. `fixed_params` 의 스레드 인자가 있으면 그 값이 우선. 예측 결과는 바뀌지 않음 |
 
 `primary_metric` 가이드:
 
@@ -1105,6 +1106,7 @@ reporting:
 | `output_path` | str | `./artifacts/scores/scores.parquet` | 결과 저장 경로 |
 | `id_columns` | list[str] | `[]` | 결과에 보존할 식별자 (override) |
 | `threshold` | float | `0.5` | `predict_proba` → 0/1 변환 임계값 |
+| `n_jobs` | int / null | `null` | 추론·SHAP CPU 스레드 수. `null` = 학습 때 값 그대로(학습도 `null` 이면 노드 전체 코어). 지정하면 `fixed_params` 스레드 인자보다 우선. 규칙은 `training.n_jobs` 와 같음. 예측 결과는 바뀌지 않음 |
 
 ### YAML 예시
 

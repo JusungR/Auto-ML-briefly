@@ -70,6 +70,8 @@ training:
   final_fit_strategy: early_stop_on_test    # early_stop_on_test (기본) | iteration_capping | cv_bagging
   iteration_cap_aggregation: mean           # iteration_capping 일 때만: mean | median
   iteration_cap_headroom: 1.0               # iteration_capping 일 때만: capped = ceil(agg * headroom)
+  n_jobs: null                              # 학습 CPU 스레드 수. null = 노드 전체 코어, 양수 = 그 수
+                                            # (-1 = 전체, -2 = 하나 남김). 예측 결과는 같고 속도만 바뀜
 
 # ==== 베이지안 하이퍼파라미터 최적화 (Optuna) ====================
 tuning:
@@ -278,6 +280,7 @@ scoring:
   id_columns:
     - user_id
   threshold: 0.5
+  n_jobs: null        # 추론·SHAP 스레드 수. null = 학습 때 값 그대로 (예측 결과는 같고 속도만 바뀜)
 
 # ==== SHAP 해석 (auto-ml-explain) ================================
 # 입력 Parquet 의 각 행에 대해 변수별 SHAP 기여도를 계산해 wide 포맷으로 저장.
