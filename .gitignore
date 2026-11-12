@@ -10,3 +10,7 @@ artifacts/**/work/
 # 실행 샘플 (examples/sample/run_sample.py) 이 생성하는 데이터 / 산출물
 examples/sample/data/
 artifacts/sample/
+
+# 실행 이력 / 배포 이력 (auto_ml.versioning) — 예시 산출물에 학습 이력이 쌓여 커밋되지 않게
+artifacts/**/runs/
+artifacts/**/deployments.jsonl

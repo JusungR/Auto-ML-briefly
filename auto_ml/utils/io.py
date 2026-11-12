@@ -18,7 +18,9 @@ cloudpickle + gzip 으로 직렬화하므로 auto_ml 패키지가 설치되지 �
 from __future__ import annotations
 
 import gzip
+import os
 import pickle
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -65,6 +67,15 @@ class ArtifactMetadata:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+def _target_mode(path: Path) -> int:
+    """기존 파일이 있으면 그 권한, 없으면 일반 파일 생성 시와 같은 권한 (0666 & ~umask)."""
+    if path.exists():
+        return path.stat().st_mode & 0o777
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
 def save_artifact(
     path: str | Path,
     preprocessor: Any,
@@ -88,8 +99,22 @@ def save_artifact(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"preprocessor": preprocessor, "model": model, "metadata": metadata}
-    with gzip.open(path, "wb") as f:
-        cloudpickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # 원자적 저장: 같은 폴더의 임시 파일에 다 쓴 뒤 os.replace 로 한 번에 바꾼다.
+    # 대상 파일에 직접 쓰면, 쓰는 도중 실패하거나 추론이 동시에 읽을 때
+    # 반쯤 쓰인 best.joblib 을 보게 된다.
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        with gzip.open(tmp, "wb") as f:
+            cloudpickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # mkstemp 은 0600 으로 만든다 — 기존 파일 권한(없으면 umask 기본) 을 따라
+        # 다른 계정의 스코어링 cron 이 읽지 못하는 일이 없게 한다.
+        os.chmod(tmp, _target_mode(path))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 

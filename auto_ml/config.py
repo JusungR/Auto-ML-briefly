@@ -441,6 +441,31 @@ class LoggingConfig:
 
 
 @dataclass
+class VersioningConfig:
+    """실행 이력 / 배포 옵션.
+
+    학습마다 ``artifact_dir/runs/<run_id>/`` 에 실행 전체(후보 모델, 리포트, test 예측,
+    run_info.json) 를 남기고, 운영 모델(best.joblib) 교체는 ``deployments.jsonl`` 에
+    기록한다. ``python -m auto_ml.cli.rollback`` 으로 직전 운영 모델로 되돌릴 수 있다.
+
+    Attributes:
+        auto_deploy: True(기본) 면 학습이 끝나자마자 best 를 운영 모델로 배포한다.
+            False 면 실행만 남기고 배포는 ``set_best --run <id> --model <name>`` 로 한다.
+        keep_last_runs: 보관할 최근 실행 수. 현재 운영·직전 운영 실행은 이 수와 무관하게
+            지우지 않는다 (롤백 대상 보호).
+    """
+
+    auto_deploy: bool = True
+    keep_last_runs: int = 5
+
+    def __post_init__(self) -> None:
+        if int(self.keep_last_runs) < 1:
+            raise ValueError(
+                f"VersioningConfig.keep_last_runs must be >= 1, got {self.keep_last_runs!r}"
+            )
+
+
+@dataclass
 class AutoMLConfig:
     """파이프라인 전체 설정.
 
@@ -497,6 +522,7 @@ class AutoMLConfig:
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     explain: ExplainConfig = field(default_factory=ExplainConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    versioning: VersioningConfig = field(default_factory=VersioningConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AutoMLConfig":
@@ -529,6 +555,8 @@ class AutoMLConfig:
             data["logging"] = LoggingConfig(**data["logging"])
         if "ensemble" in data:
             data["ensemble"] = EnsembleConfig(**data["ensemble"])
+        if "versioning" in data:
+            data["versioning"] = VersioningConfig(**data["versioning"])
         if "models" in data:
             data["models"] = {
                 name: ModelConfig(**cfg) for name, cfg in data["models"].items()

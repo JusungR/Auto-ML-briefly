@@ -202,48 +202,6 @@ def test_explainer_ensemble_score_matches_scorer(tiny_binary_data):
 
 
 # ───────────────────────────────────────────────────────────────────────
-# 이전 실행의 sub-artifact / sub-report 정리
-# ───────────────────────────────────────────────────────────────────────
-
-def test_stale_sub_artifacts_and_reports_are_archived(tmp_path, tiny_binary_data):
-    from auto_ml.cli.set_best import promote
-
-    with_ensemble = {
-        "lgbm": ModelConfig(fixed_params={"n_estimators": 30, "verbose": -1}),
-        "elasticnet": ModelConfig(enabled=True),
-    }
-    without = {
-        "lgbm": ModelConfig(fixed_params={"n_estimators": 30, "verbose": -1}),
-        "xgb": ModelConfig(fixed_params={"n_estimators": 30}),
-    }
-    cfg = _pipeline_config(tmp_path, tiny_binary_data)
-    cfg.reporting.generate_pdf = False
-    sub = tmp_path / "artifacts/models/models"
-    reports = tmp_path / "artifacts/reports/sub"
-
-    cfg.models = with_ensemble
-    AutoMLPipeline(cfg).run()
-    assert (sub / "ensemble.joblib").exists()
-
-    cfg.models = without
-    AutoMLPipeline(cfg).run()
-    assert sorted(p.stem for p in sub.glob("*.joblib")) == ["lgbm", "xgb"]
-    archived = sorted(p.name for p in (sub / "_previous").rglob("*.joblib"))
-    assert archived == ["elasticnet.joblib", "ensemble.joblib"]  # 삭제가 아니라 보관
-    assert not (reports / "ensemble").exists()
-    assert (reports / "_previous").exists()
-
-    # 옛 ensemble 은 더 이상 set_best 후보가 아니다
-    with pytest.raises(FileNotFoundError, match="Sub-artifact not found"):
-        promote(cfg, "ensemble")
-
-    # 같은 설정으로 다시 학습하면 옮길 것이 없다
-    n_archives = len(list((sub / "_previous").iterdir()))
-    AutoMLPipeline(cfg).run()
-    assert len(list((sub / "_previous").iterdir())) == n_archives
-
-
-# ───────────────────────────────────────────────────────────────────────
 # best.joblib 메타데이터 = sub-artifact 메타데이터 + best_selection
 # ───────────────────────────────────────────────────────────────────────
 
@@ -267,7 +225,8 @@ def test_best_metadata_matches_sub_artifact(tmp_path, tiny_binary_data, strategy
     sub_extra = sub_d.pop("extra")
     assert best_d == sub_d                       # trained_at 등 공통 필드 동일
     assert best_extra.pop("best_selection") == "auto_by_metric"
-    assert best_extra == sub_extra               # 전략별 상세(iteration_cap / cv_bagging) 포함
+    assert best_extra.pop("deployed_at")         # 배포 시각 (versioning.deploy)
+    assert best_extra == sub_extra               # 전략별 상세(iteration_cap / cv_bagging)·run_id 포함
     assert ("iteration_cap" if strategy == "iteration_capping" else "cv_bagging") in best_extra
 
     # set_best 로 바꾼 best.joblib 도 같은 항목 + 승격 정보를 갖는다
@@ -275,7 +234,9 @@ def test_best_metadata_matches_sub_artifact(tmp_path, tiny_binary_data, strategy
     promote(cfg, other)
     promoted = load_artifact(tmp_path / "artifacts/models/best.joblib")["metadata"].extra
     assert promoted["best_selection"] == "promoted"
-    assert set(promoted) == set(best_extra) | {"best_selection", "promoted_at", "promoted_from"}
+    assert set(promoted) == set(best_extra) | {
+        "best_selection", "deployed_at", "promoted_at", "promoted_from",
+    }
 
 
 # ───────────────────────────────────────────────────────────────────────

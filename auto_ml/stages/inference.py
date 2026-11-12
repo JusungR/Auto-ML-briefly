@@ -20,6 +20,7 @@ from auto_ml.config import AutoMLConfig
 from auto_ml.scoring.scorer import Scorer, build_score_frame
 from auto_ml.utils.io import ARTIFACT_FILENAME, summarize_dataframe, warn_degenerate_columns
 from auto_ml.utils.logger import get_logger
+from auto_ml.versioning import missing_production_message
 
 logger = get_logger("stages.inference")
 
@@ -51,9 +52,7 @@ def artifact_path_of(cfg: AutoMLConfig) -> Path:
     """설정의 ``artifact_dir`` 에서 best artifact 경로를 결정한다."""
     path = Path(cfg.artifact_dir) / ARTIFACT_FILENAME
     if not path.exists():
-        raise FileNotFoundError(
-            f"Artifact not found at {path}. Run training first (train/run_all.py)."
-        )
+        raise FileNotFoundError(missing_production_message(cfg.artifact_dir))
     return path
 
 

@@ -1,101 +1,153 @@
 """best 교체 CLI 진입점.
 
-학습이 끝난 뒤 ``artifact_dir/models/<name>.joblib`` 중 하나를
-``artifact_dir/best.joblib`` 으로 승격(복사)한다. 재학습 없이 운영 best 를
-교체할 수 있어, 자동 선정된 모형이 운영 중 부적합하다고 판단될 때 빠르게
-대응할 수 있다.
+학습 결과 후보 중 하나를 운영 모델(``artifact_dir/best.joblib``) 로 올린다. 재학습 없이
+운영 모델을 바꿀 수 있어, 자동 선정된 모형이 운영 중 부적합할 때 빠르게 대응할 수 있다.
+교체는 :func:`auto_ml.versioning.deploy` 를 거치므로 시험 스코어링에 실패하면 운영 모델이
+바뀌지 않고, 성공하면 배포 이력(``deployments.jsonl``) 에 기록된다.
 
 사용 예::
 
+    # 최신 실행의 후보 중 xgb 로 교체
     python -m auto_ml.cli.set_best --config configs/example.yaml --model xgb
+    # 특정 이전 실행의 모델로 교체
+    python -m auto_ml.cli.set_best --config configs/example.yaml --run 20261110_093000 --model lgbm
+    # 실행 목록과 배포 이력 보기
+    python -m auto_ml.cli.set_best --config configs/example.yaml --list
 """
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 from pathlib import Path
 
+from auto_ml import versioning
 from auto_ml.config import AutoMLConfig, load_config
-from auto_ml.utils.io import ARTIFACT_FILENAME, load_artifact, save_artifact
+from auto_ml.utils.io import load_artifact
 from auto_ml.utils.logger import get_logger, setup_logging
 
 logger = get_logger("set_best")
-SUB_ARTIFACT_DIRNAME = "models"
+SUB_ARTIFACT_DIRNAME = versioning.LATEST_DIRNAME
 
 
-def promote(config: AutoMLConfig, model_name: str) -> Path:
-    """``model_name`` 의 sub-artifact 를 ``best.joblib`` 으로 복사한다.
+def _candidates(sub_dir: Path) -> list[str]:
+    return sorted(p.stem for p in sub_dir.glob("*.joblib")) if sub_dir.exists() else []
+
+
+def promote(config: AutoMLConfig, model_name: str, run_id: str | None = None) -> Path:
+    """후보 모델을 운영 모델(best.joblib) 로 올린다.
 
     Args:
-        config: AutoMLConfig — ``artifact_dir`` 만 사용.
-        model_name: 승격할 모형 이름 (sub-artifact 파일 stem).
+        config: AutoMLConfig.
+        model_name: 올릴 모형 이름 (후보 파일 stem).
+        run_id: None 이면 최신 실행 후보(``artifact_dir/models/``), 지정하면
+            ``artifact_dir/runs/<run_id>/models/`` 에서 찾는다.
 
     Returns:
-        새로 저장된 ``best.joblib`` 경로.
+        운영 모델 경로 (best.joblib).
 
     Raises:
-        FileNotFoundError: 지정한 sub-artifact 가 없을 때.
+        FileNotFoundError: 실행 또는 후보 모델이 없을 때.
+        auto_ml.versioning.DeploymentError: 시험 스코어링 실패 등으로 올릴 수 없을 때.
     """
     artifact_dir = Path(config.artifact_dir)
-    sub_path = artifact_dir / SUB_ARTIFACT_DIRNAME / f"{model_name}.joblib"
-    best_path = artifact_dir / ARTIFACT_FILENAME
-
-    if not sub_path.exists():
-        available: list[str] = []
+    if run_id is not None:
+        run_dir = versioning.runs_root(artifact_dir) / run_id
+        if not run_dir.exists():
+            available = [d.name for d in versioning.list_runs(artifact_dir)]
+            raise FileNotFoundError(
+                f"Run not found: {run_dir}. Available runs: {available or '(none)'}"
+            )
+        sub_dir = run_dir / SUB_ARTIFACT_DIRNAME
+    else:
         sub_dir = artifact_dir / SUB_ARTIFACT_DIRNAME
-        if sub_dir.exists():
-            available = sorted(p.stem for p in sub_dir.glob("*.joblib"))
+
+    sub_path = sub_dir / f"{model_name}.joblib"
+    if not sub_path.exists():
         raise FileNotFoundError(
             f"Sub-artifact not found: {sub_path}. "
-            f"Available sub-artifacts: {available or '(none — train first)'}"
+            f"Available sub-artifacts: {_candidates(sub_dir) or '(none — train first)'}"
         )
 
-    bundle = load_artifact(sub_path)
-    preprocessor = bundle["preprocessor"]
-    model = bundle["model"]
-    metadata = bundle["metadata"]
-
-    # 이전 best 의 모형 이름을 로그에 남긴다 — 운영 추적용.
-    previous_name: str | None = None
-    if best_path.exists():
+    source = sub_path
+    if run_id is None:
+        # models/ 는 최신 실행의 사본이다. 이력에는 원본(실행 스냅샷) 경로를 남겨
+        # 보존 정책이 그 실행을 운영 실행으로 인식·보호하게 한다.
         try:
-            prev = load_artifact(best_path)
-            previous_name = getattr(prev["metadata"], "model_name", None)
-        except Exception as exc:  # 손상된 best 파일이어도 승격은 진행
-            logger.warning("Failed to inspect existing best.joblib: %s", exc)
+            rid = load_artifact(sub_path)["metadata"].extra.get("run_id")
+        except Exception:  # noqa: BLE001 — deploy 가 다시 열어 명확한 에러를 낸다
+            rid = None
+        snap = versioning.runs_root(artifact_dir) / str(rid) / SUB_ARTIFACT_DIRNAME / sub_path.name
+        if rid and snap.exists():
+            source = snap
 
-    metadata.extra = dict(metadata.extra)
-    metadata.extra["promoted_at"] = datetime.utcnow().isoformat()
-    metadata.extra["promoted_from"] = previous_name
-    # 학습 직후의 best.joblib 과 같은 항목을 갖도록 선정 경위를 남긴다
-    # (auto_by_metric / user_override / promoted).
-    metadata.extra["best_selection"] = "promoted"
-
-    save_artifact(best_path, preprocessor, model, metadata)
-    primary_metric = getattr(metadata, "primary_metric", "?")
-    metric_value = getattr(metadata, "metric_value", float("nan"))
-    logger.info(
-        "Promoted '%s' to %s (%s=%.4f, was=%s)",
-        model_name, best_path, primary_metric, metric_value,
-        previous_name if previous_name is not None else "(none)",
-    )
+    best_path = versioning.deploy(config, source, action="promote", best_selection="promoted")
+    versioning.prune_runs(artifact_dir, config.versioning.keep_last_runs)
     return best_path
+
+
+def describe(config: AutoMLConfig, n_history: int = 10) -> str:
+    """실행 목록과 최근 배포 이력을 사람이 읽기 좋은 문자열로 만든다 (``--list``)."""
+    artifact_dir = Path(config.artifact_dir)
+    current = versioning.current_deployment(artifact_dir) or {}
+    prev = current.get("previous") or {}
+    lines = [f"Runs in {versioning.runs_root(artifact_dir)} (oldest first):"]
+    runs = versioning.list_runs(artifact_dir)
+    if not runs:
+        lines.append("  (none)")
+    for d in runs:
+        info = versioning.read_run_info(d)
+        flags = []
+        if d.name == current.get("run_id"):
+            flags.append(f"PRODUCTION: {current.get('model')}")
+        if d.name == prev.get("run_id"):
+            flags.append(f"previous: {prev.get('model')}")
+        best = info.get("best_model")
+        metric = (info.get("models") or {}).get(best, {}).get("test_metrics", {}).get(
+            info.get("primary_metric", ""))
+        best_txt = f"best={best} {info.get('primary_metric')}={metric:.4f}" if metric is not None \
+            else ("legacy import" if info.get("legacy") else "")
+        lines.append(
+            f"  {d.name:<24} {str(info.get('created_at', ''))[:19]:<20} "
+            f"models={_candidates(d / SUB_ARTIFACT_DIRNAME)} {best_txt}"
+            + (f"  [{'; '.join(flags)}]" if flags else "")
+        )
+    lines.append(f"Recent deployments ({versioning.DEPLOY_LOG}, newest last):")
+    existing = {d.name for d in runs}
+    history = versioning.read_deployments(artifact_dir)[-n_history:]
+    if not history:
+        lines.append("  (none)")
+    for e in history:
+        gone = "" if e.get("run_id") in existing else "  (run deleted)"
+        lines.append(
+            f"  {str(e.get('at', ''))[:19]}  {e.get('action'):<8} "
+            f"run={e.get('run_id')} model={e.get('model')}{gone}"
+        )
+    return "\n".join(lines)
 
 
 def cli_set_best() -> None:
     """``python -m auto_ml.cli.set_best`` 진입점."""
     parser = argparse.ArgumentParser(
-        description="Promote a sub-artifact (artifact_dir/models/<name>.joblib) "
-                    "to artifact_dir/best.joblib without retraining."
+        description="Deploy a trained candidate model to artifact_dir/best.joblib "
+                    "without retraining, or list runs and deployments."
     )
     parser.add_argument("--config", required=True, help="설정 YAML 경로")
     parser.add_argument(
-        "--model", required=True,
-        help="승격할 모형 이름 (sub-artifact 파일 stem). 예: lgbm | xgb | catboost",
+        "--model",
+        help="올릴 모형 이름 (후보 파일 stem). 예: lgbm | xgb | catboost | ensemble",
     )
+    parser.add_argument(
+        "--run", default=None,
+        help="이전 실행 id (runs/<id>). 생략하면 최신 실행 후보(models/) 에서 찾는다.",
+    )
+    parser.add_argument("--list", action="store_true", help="실행 목록과 배포 이력만 출력")
     args = parser.parse_args()
+    if not args.list and not args.model:
+        parser.error("--model is required unless --list is given")
 
     config = load_config(args.config)
+    if args.list:
+        print(describe(config))
+        return
     setup_logging(
         log_dir=config.logging.log_dir,
         level=config.logging.level,
@@ -103,7 +155,7 @@ def cli_set_best() -> None:
         to_file=config.logging.to_file,
         stage="set_best",
     )
-    promote(config, args.model)
+    promote(config, args.model, run_id=args.run)
 
 
 if __name__ == "__main__":

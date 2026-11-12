@@ -20,6 +20,7 @@ from auto_ml.config import AutoMLConfig, load_config
 from auto_ml.explain.explainer import Explainer
 from auto_ml.utils.io import ARTIFACT_FILENAME, summarize_dataframe, warn_degenerate_columns
 from auto_ml.utils.logger import get_logger, setup_logging
+from auto_ml.versioning import missing_production_message
 
 logger = get_logger("explain.runner")
 
@@ -49,9 +50,7 @@ def run_explain(config: AutoMLConfig) -> Path:
 
     artifact_path = Path(config.artifact_dir) / ARTIFACT_FILENAME
     if not artifact_path.exists():
-        raise FileNotFoundError(
-            f"Artifact not found at {artifact_path}. Run training first (train/run_all.py)."
-        )
+        raise FileNotFoundError(missing_production_message(config.artifact_dir))
 
     input_path = Path(config.explain.input_path)
     if not input_path.exists():

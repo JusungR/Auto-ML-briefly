@@ -11,13 +11,14 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass, replace
-from datetime import datetime
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from auto_ml import versioning
 from auto_ml.config import AutoMLConfig
 from auto_ml.feature_selection import SelectionResult, StabilitySelector
 from auto_ml.models.trainer import Trainer, TrainingResult
@@ -25,7 +26,6 @@ from auto_ml.preprocessing import PreprocessingPipeline
 from auto_ml.reporting.report import ReportBuilder
 from auto_ml.utils.categorical import log_unseen_categories
 from auto_ml.utils.io import (
-    ARTIFACT_FILENAME,
     ArtifactMetadata,
     save_artifact,
     summarize_dataframe,
@@ -166,54 +166,25 @@ def train(cfg: AutoMLConfig, prep: TrainPreprocessed) -> TrainingResult:
 # ----------------------------------------------------------------------
 # 3) 후처리
 # ----------------------------------------------------------------------
-# 이번 실행에서 만들지 않은 sub-artifact / sub-report 를 옮겨 두는 하위 폴더.
-# set_best 는 models/<name>.joblib 만 보므로 여기로 옮긴 파일은 후보에서 빠진다.
-PREVIOUS_DIRNAME = "_previous"
+def _remove_stale_sub_reports(cfg: AutoMLConfig, result: TrainingResult) -> None:
+    """현재 실행에 없는 모델의 sub-report 폴더를 ``reporting.output_dir/sub`` 에서 지운다.
 
-
-def _archive_stale(parent: Path, stale: list[Path], what: str, note: str = "") -> list[Path]:
-    """``stale`` 경로들을 ``<parent>/_previous/<시각>/`` 으로 옮기고 새 경로를 반환한다.
-
-    이전 실행의 산출물(예: 지난번에만 켰던 ensemble) 이 남아 있으면 ``set_best`` 가
-    옛 전처리·옛 변수로 학습된 모델을 운영 best 로 올리거나, 리포트 폴더에 현재
-    실행에 없는 모델의 리포트가 섞인다. 삭제 대신 옮겨 두어 필요하면 되돌릴 수 있다.
+    이전 실행의 리포트는 그 실행 폴더(``runs/<id>/reports``) 에 사본이 있으므로 지워도
+    잃지 않는다. 남겨 두면 현재 실행에 없는 모델의 리포트가 섞여 보인다.
+    sub-report 는 best 를 제외한 모델마다 만들어진다 (ReportBuilder 와 같은 규칙).
     """
-    if not stale:
-        return []
-    archive = parent / PREVIOUS_DIRNAME / datetime.now().strftime("%Y%m%d_%H%M%S")
-    base, suffix = archive.name, 1
-    while archive.exists():  # 같은 초에 두 번 실행된 경우
-        archive = archive.with_name(f"{base}-{suffix}")
-        suffix += 1
-    archive.mkdir(parents=True)
-    moved = [Path(shutil.move(str(p), str(archive / p.name))) for p in sorted(stale)]
-    logger.warning(
-        "Moved %d %s not produced by this run to %s: %s%s",
-        len(moved), what, archive, [p.stem for p in moved], note,
-    )
-    return moved
-
-
-def _archive_stale_outputs(cfg: AutoMLConfig, result: TrainingResult) -> None:
-    """이번 실행 결과에 없는 sub-artifact 와 sub-report 폴더를 보관 폴더로 옮긴다."""
-    sub_dir = Path(cfg.artifact_dir) / "models"
-    if sub_dir.exists():
-        names = set(result.results)
-        _archive_stale(
-            sub_dir,
-            [p for p in sub_dir.glob("*.joblib") if p.stem not in names],
-            "sub-artifact(s)",
-            " — no longer set_best candidates",
-        )
-    # sub-report 는 best 를 제외한 모델마다 만들어진다 (ReportBuilder 와 같은 규칙)
     sub_reports = Path(cfg.reporting.output_dir) / "sub"
-    if sub_reports.exists():
-        keep = set(result.results) - {result.best_model_name}
-        _archive_stale(
-            sub_reports,
-            [d for d in sub_reports.iterdir()
-             if d.is_dir() and d.name != PREVIOUS_DIRNAME and d.name not in keep],
-            "sub-report folder(s)",
+    if not sub_reports.exists():
+        return
+    keep = set(result.results) - {result.best_model_name}
+    stale = [d for d in sub_reports.iterdir() if d.is_dir() and d.name not in keep]
+    for d in stale:
+        shutil.rmtree(d)
+    if stale:
+        logger.info(
+            "Removed sub-report folder(s) of models not in this run: %s "
+            "(earlier copies remain under artifact_dir/runs/<run_id>/reports)",
+            sorted(d.name for d in stale),
         )
 
 
@@ -236,28 +207,34 @@ def postprocess(
     prep: TrainPreprocessed,
     result: TrainingResult,
 ) -> dict[str, Path]:
-    """artifact 저장 → test 예측 export → 리포트 생성.
+    """실행 저장 → test 예측 → 리포트 → (자동) 배포 → 오래된 실행 정리.
 
-    artifact 를 가장 먼저 저장한다. 리포트 단계에서 오류가 나도 (긴 튜닝·학습의 결과인)
-    모델은 남아 있어 ``train/postprocess.py`` 재실행이나 스코어링이 가능하다.
+    1. 후보 모델을 실행 스냅샷 ``artifact_dir/runs/<run_id>/models/`` 에 저장하고
+       ``artifact_dir/models/`` 를 그 사본으로 교체한다. 모델을 가장 먼저 저장하므로
+       이후 단계가 실패해도 학습 결과는 남는다.
+    2. test 예측·리포트를 기존 위치에 쓰고 실행 폴더에도 사본을 남긴다.
+    3. ``versioning.auto_deploy`` 이면 best 를 운영 모델(best.joblib) 로 배포한다 —
+       실행이 완전히 끝난 뒤에만 운영 모델이 바뀐다.
+    4. ``versioning.keep_last_runs`` 를 넘는 오래된 실행을 지운다 (운영·직전 운영 제외).
 
     Returns:
         산출물 이름 → 경로 dict (비활성 산출물은 키 누락).
     """
     outputs: dict[str, Path] = {}
+    artifact_dir = Path(cfg.artifact_dir)
 
-    # artifact 저장 -----------------------------------------------------
-    # 모든 모형을 sub-artifact (artifact_dir/models/<name>.joblib) 로 독립 저장한 뒤,
-    # best 의 동일 내용을 best.joblib 으로 한 번 더 저장한다. 이렇게 두면
-    # set_best 가 재학습 없이 best 를 교체할 수 있고, 각 sub-artifact
-    # 만으로도 Scorer/Explainer 가 독립적으로 동작한다.
-    _archive_stale_outputs(cfg, result)
-    sub_dir = Path(cfg.artifact_dir) / "models"
+    # 실행 폴더 + 후보 모델 저장 ----------------------------------------------
+    versioning.migrate_legacy(cfg)  # runs/ 가 없는 기존 폴더는 legacy 실행으로 먼저 담는다
+    run_id, run_dir = versioning.new_run_dir(artifact_dir)
+    run_models = run_dir / versioning.LATEST_DIRNAME
+    outputs["run_dir"] = run_dir
+    logger.info("Run %s: %s", run_id, run_dir)
+
     primary_metric_name = cfg.training.primary_metric
     selection_extra = _selection_extra(prep.selection)
-    sub_metadatas: dict[str, ArtifactMetadata] = {}
     for name, mr in result.results.items():
         sub_extra: dict[str, Any] = {
+            "run_id": run_id,
             "best_iteration": mr.model.best_iteration,
             "fold_best_iterations": mr.fold_best_iterations,
             "best_params": mr.params,
@@ -290,38 +267,41 @@ def postprocess(
             metric_value=mr.test_metrics[primary_metric_name],
             extra=sub_extra,
         )
-        sub_metadatas[name] = sub_metadata
-        sub_path = sub_dir / f"{name}.joblib"
+        sub_path = run_models / f"{name}.joblib"
         save_artifact(sub_path, prep.preprocessor, mr.model, sub_metadata)
         logger.info("Saved sub-artifact (%s): %s", name, sub_path)
 
-    # best 는 sub 중 하나의 복사본. 메타데이터도 그 sub-artifact 의 것을 그대로 쓰고
-    # (학습 시각 포함) best 선정 경위만 덧붙인다 — 따로 만들면 항목이 어긋난다.
     best_result = result.best
-    best_sub = sub_metadatas[best_result.name]
-    best_metadata = replace(
-        best_sub,
-        extra={
-            **best_sub.extra,
-            "best_selection": (
-                "user_override" if cfg.training.best_model is not None
-                else "auto_by_metric"
-            ),
+    versioning.write_run_info(run_dir, {
+        "run_id": run_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "best_model": best_result.name,
+        "primary_metric": primary_metric_name,
+        "models": {
+            name: {
+                "test_metrics": mr.test_metrics,
+                "cv_metrics": mr.cv_metrics,
+                "best_iteration": mr.model.best_iteration,
+            }
+            for name, mr in result.results.items()
         },
-    )
-    artifact_path = Path(cfg.artifact_dir) / ARTIFACT_FILENAME
-    save_artifact(artifact_path, prep.preprocessor, best_result.model, best_metadata)
-    outputs["artifact"] = artifact_path
+        "feature_columns": prep.feature_columns,
+        "selected_features": prep.selected_features,
+        "categorical_columns": prep.categorical_columns,
+        "data": {
+            "train": _file_info(cfg.train_data_path, len(prep.y_train)),
+            "test": _file_info(cfg.test_data_path, len(prep.y_test)),
+        },
+        "config": asdict(cfg),
+        **versioning.environment_info(),
+    })
+    sub_dir = versioning.refresh_latest_models(artifact_dir, run_dir)
     outputs["sub_artifacts"] = sub_dir
-    logger.info("Saved artifact: %s", artifact_path)
 
     # test 예측 export --------------------------------------------------
     # 외부 분석용 (BI / 추가 진단) — best 모델의 holdout 예측을 키와 함께 저장.
     # 스키마: <id_columns> + score + prediction + <target_column>.
     # 운영 스코어링 출력과 동일한 컬럼 규약을 유지하되 actual 추가.
-    predictions_dir = Path(cfg.artifact_dir).parent / "predictions"
-    predictions_dir.mkdir(parents=True, exist_ok=True)
-    predictions_path = predictions_dir / "test_predictions.parquet"
     threshold = cfg.scoring.threshold
     keep_id_cols = list(prep.test_ids.columns)
     pred_df = pd.DataFrame(index=prep.test_ids.index)
@@ -330,7 +310,10 @@ def postprocess(
     pred_df["score"] = best_result.test_proba
     pred_df["prediction"] = (best_result.test_proba >= threshold).astype(int)
     pred_df[cfg.target_column] = prep.y_test.values
-    pred_df.to_parquet(predictions_path, index=False)
+    predictions_path = artifact_dir.parent / "predictions" / "test_predictions.parquet"
+    for path in (predictions_path, run_dir / "predictions" / "test_predictions.parquet"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pred_df.to_parquet(path, index=False)
     outputs["test_predictions"] = predictions_path
     logger.info(
         "Wrote test predictions: %s (rows=%d, id_cols=%s)",
@@ -340,6 +323,7 @@ def postprocess(
     # 리포트 ------------------------------------------------------------
     # (PDF 변환 실패는 ReportBuilder 안에서 WARNING 처리되어 학습을 중단하지 않는다)
     logger.info("Step 4/4: report generation")
+    _remove_stale_sub_reports(cfg, result)
     report_paths = ReportBuilder(cfg).build(result, selection=prep.selection)
     for src, dst in (
         ("html", "report_html"),
@@ -349,7 +333,28 @@ def postprocess(
     ):
         if src in report_paths:
             outputs[dst] = report_paths[src]
+    report_dir = Path(cfg.reporting.output_dir)
+    if report_dir.exists():
+        shutil.copytree(report_dir, run_dir / "reports",
+                        ignore=shutil.ignore_patterns("_previous"))
 
+    # 배포 ---------------------------------------------------------------
+    best_selection = (
+        "user_override" if cfg.training.best_model is not None else "auto_by_metric"
+    )
+    if cfg.versioning.auto_deploy:
+        outputs["artifact"] = versioning.deploy(
+            cfg, run_models / f"{best_result.name}.joblib",
+            action="train", best_selection=best_selection,
+        )
+    else:
+        logger.info(
+            "versioning.auto_deploy is false — production model unchanged. Deploy with: "
+            "python -m auto_ml.cli.set_best --config <yaml> --run %s --model %s",
+            run_id, best_result.name,
+        )
+
+    versioning.prune_runs(artifact_dir, cfg.versioning.keep_last_runs)
     logger.info(
         "Best model: %s, %s=%.4f",
         result.best_model_name,
@@ -357,3 +362,13 @@ def postprocess(
         best_result.test_metrics[result.primary_metric],
     )
     return outputs
+
+
+def _file_info(path: str, n_rows: int) -> dict[str, Any]:
+    """run_info 용 데이터 파일 정보 (경로, 사용 행 수, 수정 시각)."""
+    p = Path(path)
+    info: dict[str, Any] = {"path": str(path), "rows": n_rows}
+    if p.exists():
+        info["modified_at"] = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()
+        info["size_bytes"] = p.stat().st_size
+    return info
