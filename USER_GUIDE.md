@@ -43,6 +43,7 @@
 16. [스코어링 `scoring`](#16-스코어링-scoring)
 17. [SHAP 해석 `explain`](#17-shap-해석-explain)
 18. [로깅 `logging`](#18-로깅-logging)
+19. [실행 이력·배포·롤백 `versioning`](#19-실행-이력배포롤백-versioning)
 
 **부록**
 
@@ -1217,6 +1218,63 @@ logging:
 
 ---
 
+## 19. 실행 이력·배포·롤백 `versioning`
+
+### 역할
+
+학습할 때마다 그 실행 전체를 `artifact_dir/runs/<실행 ID>/` 에 남기고, 운영 모델(`best.joblib`)
+이 바뀔 때마다 배포 이력(`artifact_dir/deployments.jsonl`) 에 기록합니다. 그래서 새 모델이
+운영에서 문제가 되면 **직전 운영 모델로 바로 되돌릴 수 있습니다.**
+
+### 옵션
+
+| 키 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `auto_deploy` | bool | `true` | 학습이 끝나면 best 를 바로 운영 모델로 배포. `false` 면 실행만 남기고, 배포는 `set_best` 로 직접 |
+| `keep_last_runs` | int | `5` | 보관할 최근 실행 수 (1 이상). 현재 운영·직전 운영 실행은 이 수와 무관하게 보관 |
+
+### YAML 예시
+
+```yaml
+versioning:
+  auto_deploy: true
+  keep_last_runs: 5
+```
+
+### 동작 메모
+
+**학습할 때**
+1. 후보 모델을 `runs/<실행 ID>/models/` 에 저장하고, `models/` 를 그 사본으로 통째로 교체합니다.
+   이전 실행의 후보가 섞이지 않습니다.
+2. 리포트·test 예측도 실행 폴더에 사본을 남기고, `run_info.json` 에 설정·변수·데이터 정보·
+   모델별 점수·라이브러리 버전을 기록합니다.
+3. `auto_deploy: true` 면 실행이 끝까지 완료된 뒤 best 를 운영 모델로 배포합니다.
+4. 보관 개수를 넘는 오래된 실행을 지웁니다(운영·직전 운영 실행 제외).
+
+**운영 모델을 바꿀 때 (자동 배포 / `set_best` / `rollback` 공통)**
+- 대상 모델을 실제로 열어 `scoring.input_path` 앞 100행으로 **시험 스코어링**을 합니다. 실패하면
+  운영 모델을 바꾸지 않습니다. 입력에 없는 변수가 있으면 WARNING 을 남깁니다.
+- 임시 파일에 쓴 뒤 한 번에 교체하므로, 교체 중 추론이 읽어도 깨진 파일을 보지 않습니다.
+- `deployments.jsonl` 에 시각·동작·실행·모델·점수·직전 운영 모델을 기록합니다.
+
+**롤백**
+```bash
+python -m auto_ml.cli.rollback --config <yaml>      # 직전 운영 모델로 (다시 실행하면 원래대로)
+python -m auto_ml.cli.set_best --config <yaml> --run <실행 ID> --model <이름>   # 특정 실행으로
+python -m auto_ml.cli.set_best --config <yaml> --list                         # 실행·배포 이력 보기
+```
+
+**주의**
+- 실행마다 test 데이터·변수 구성이 다를 수 있습니다. 실행 간 점수를 그대로 비교하지 말고
+  `run_info.json` 을 함께 보세요.
+- 코드·라이브러리를 업데이트한 뒤에는 오래된 실행의 모델이 열리지 않을 수 있습니다. 이때 롤백은
+  시험 스코어링 단계에서 거부되고 운영 모델은 그대로 유지됩니다.
+- 예전 구조(`runs/` 없음)의 폴더는 다음 학습 때 기존 모델·리포트를 `runs/legacy_<원래 학습 시각>/`
+  으로 담아 두므로, 첫 롤백이 예전 운영 모델로 돌아갈 수 있습니다.
+- 같은 `artifact_dir` 로 학습 두 개를 동시에 실행하지 마세요(지원하지 않음).
+
+---
+
 # 부록
 
 ## A. 실행 명령어 모음
@@ -1234,7 +1292,10 @@ logging:
 | `python inference/postprocess.py --config <yaml>` | 추론 3/3 결과 저장 |
 | `python inference/run_all.py --config <yaml>` | 추론 전체 |
 | `python -m auto_ml.explain.runner --config <yaml>` | SHAP 해석 |
-| `python -m auto_ml.cli.set_best --config <yaml> --model <name>` | 재학습 없이 best 교체 |
+| `python -m auto_ml.cli.set_best --config <yaml> --model <name>` | 재학습 없이 운영 모델 교체 (최신 실행 후보) |
+| `python -m auto_ml.cli.set_best --config <yaml> --run <id> --model <name>` | 이전 실행의 모델로 교체 |
+| `python -m auto_ml.cli.set_best --config <yaml> --list` | 실행 목록·배포 이력 보기 |
+| `python -m auto_ml.cli.rollback --config <yaml>` | 직전 운영 모델로 되돌리기 (다시 실행하면 원래대로) |
 
 best 교체 예시:
 
@@ -1246,10 +1307,14 @@ python -m auto_ml.cli.set_best --config configs/my_config.yaml --model xgb
 python -m auto_ml.cli.set_best --config configs/my_config.yaml --model ensemble
 ```
 
-`best.joblib` 의 메타데이터는 해당 후보 파일의 메타데이터와 같고, `extra.best_selection` 에 선정
-경위가 추가됩니다 — `auto_by_metric`(자동 선정) / `user_override`(`training.best_model` 지정) /
-`promoted`(set_best 로 교체). 승격된 경우 `promoted_at` / `promoted_from`(이전 best 이름) 도
-기록됩니다.
+`best.joblib` 의 메타데이터는 배포한 후보 파일의 메타데이터와 같고(`run_id` 포함), `extra` 에
+배포 정보가 추가됩니다.
+- `best_selection`: `auto_by_metric`(자동 선정) / `user_override`(`training.best_model` 지정) /
+  `promoted`(set_best) / `rollback`
+- `deployed_at`
+- `promoted_at` / `promoted_from`: set_best·rollback 인 경우만. `promoted_from` 은 이전 운영 모델 이름
+
+롤백·실행 이력은 [§19](#19-실행-이력배포롤백-versioning) 참고.
 
 ---
 
@@ -1260,27 +1325,24 @@ python -m auto_ml.cli.set_best --config configs/my_config.yaml --model ensemble
 전처리기 + 모델 + 메타데이터가 하나의 파일로 묶인 cloudpickle+gzip 번들입니다. 스코어링/
 SHAP 시 이 파일 하나만 있으면 됩니다.
 
-전체 sub-artifact 구조:
+전체 구조:
 
 ```
 <artifact_dir>/
-├── best.joblib                  ← 운영용 (scoring/explain 대상)
-└── models/
-    ├── lgbm.joblib              ← 후보 1
-    ├── xgb.joblib               ← 후보 2
-    ├── catboost.joblib          ← 후보 3
-    ├── elasticnet.joblib        ← 후보 4 (enabled 시)
-    └── ensemble.joblib          ← 앙상블 후보 (앙상블이 생성된 경우)
+├── best.joblib                  ← 운영 모델 (scoring/explain 대상)
+├── deployments.jsonl            ← 배포 이력
+├── models/                      ← 최신 실행 후보 사본 (set_best 기본 대상)
+│   ├── lgbm.joblib  xgb.joblib  catboost.joblib
+│   ├── elasticnet.joblib        ← enabled 시
+│   └── ensemble.joblib          ← 앙상블이 생성된 경우
+└── runs/<실행 ID>/              ← 실행 스냅샷 (최근 5개 + 운영·직전 운영 실행 보관)
+    ├── models/*.joblib
+    ├── reports/  predictions/
+    └── run_info.json
 ```
 
-`best.joblib` 은 위 sub-artifact 중 하나의 복사본입니다. 각 sub-artifact 는 독립 번들이라
-그 자체로 스코어링 / SHAP 해석에 사용할 수 있습니다.
-
-재학습할 때 이번 실행에서 만들지 않은 후보 파일(예: 지난번에만 켰던 `ensemble.joblib`)은
-`models/_previous/<YYYYMMDD_HHMMSS>/` 로 옮겨지고 로그에 WARNING 이 남습니다. 옛 전처리·옛
-변수로 학습된 모델이 `set_best` 로 운영에 올라가는 것을 막기 위해서입니다 (`set_best` 는
-`models/<name>.joblib` 만 후보로 봅니다). 삭제가 아니므로 필요하면 꺼내 쓸 수 있고, 보관
-폴더는 자동으로 지워지지 않으니 쌓이면 직접 정리하세요.
+`best.joblib` 은 후보 파일 중 하나의 복사본입니다. 각 후보 파일은 독립 번들이라 그 자체로
+스코어링 / SHAP 해석에 사용할 수 있습니다. 실행 이력·롤백은 [§19](#19-실행-이력배포롤백-versioning) 참고.
 
 ### B.2 HTML / PDF 리포트
 
@@ -1315,7 +1377,7 @@ reports/sub/ensemble/...
 
 각 sub-report 는 해당 모형 vs best 점수 비교, feature importance, 10-분위 분석,
 score distribution, confusion matrix, 변수 선택 결과를 포함합니다. 이번 실행에 없는 모형의
-sub-report 폴더는 `sub/_previous/<시각>/` 으로 옮겨집니다 (B.1 과 같은 규칙).
+sub-report 폴더는 지워집니다(이전 실행의 리포트는 `runs/<실행 ID>/reports/` 에 사본이 남아 있습니다).
 
 ### B.3 `scores.parquet` (스코어링 산출물)
 
@@ -1437,6 +1499,17 @@ training:
 나옵니다. 새 코드가 생긴 것이라면 재학습을 검토하고, 표기만 다른 것(대소문자·공백·오타)
 이라면 입력 데이터를 학습 때와 같은 표기로 맞추세요.
 
+**Q15. 새로 학습한 모델이 운영에서 이상해요. 이전 모델로 되돌리려면?**
+`python -m auto_ml.cli.rollback --config <yaml>` 로 직전 운영 모델로 돌아갑니다. 한 번 더 실행하면
+다시 새 모델로 돌아옵니다. 더 이전 실행으로 가려면 `set_best --list` 로 실행 ID 를 확인한 뒤
+`set_best --run <실행 ID> --model <이름>` 을 쓰세요. 대상 모델이 열리지 않거나 시험 스코어링에
+실패하면 롤백이 거부되고 운영 모델은 그대로입니다 ([§19](#19-실행-이력배포롤백-versioning)).
+
+**Q16. `runs/` 폴더가 계속 커지지 않나요?**
+`versioning.keep_last_runs`(기본 5) 를 넘는 오래된 실행은 학습할 때 자동으로 지워집니다. 단, 현재
+운영 실행과 직전 운영 실행은 오래돼도 남깁니다. 실행 하나의 크기는 후보 모델 + 리포트(PDF 포함) +
+test 예측 정도입니다.
+
 ---
 
 ## D. 폐쇄망 이관
@@ -1448,7 +1521,8 @@ training:
    pip wheel -r requirements.txt -w wheelhouse/
    ```
 2. **본 저장소 자체** — `git clone` 한 폴더 그대로 (`auto_ml/`, `train/`, `inference/` 가 필요합니다. 설치는 하지 않습니다).
-3. **학습 산출물** — `artifacts/models/best.joblib` (`work/` 폴더는 옮길 필요 없음)
+3. **학습 산출물** — `artifacts/models/best.joblib` (`work/` 폴더는 옮길 필요 없음. 폐쇄망에서 롤백도
+   하려면 `runs/` 와 `deployments.jsonl` 도 함께 옮기세요)
 4. **스코어링용 설정 YAML 과 그 YAML 의 `features_csv` 가 가리키는 CSV** — 설정을 읽을 때
    CSV 도 함께 읽으므로, CSV 가 없으면 `FileNotFoundError` 로 실패합니다.
 

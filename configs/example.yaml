@@ -257,6 +257,13 @@ ensemble:
   strategy: elasticnet_plus_best
   elasticnet_weight: null           # null → 점수 비례 자동, 예: 0.35 로 직접 지정
 
+# ==== 실행 이력 / 배포 / 롤백 ===================================
+# 학습마다 artifact_dir/runs/<실행 ID>/ 에 실행 전체가 남고, 운영 모델(best.joblib) 교체는
+# artifact_dir/deployments.jsonl 에 기록된다. 되돌리기: python -m auto_ml.cli.rollback --config <yaml>
+versioning:
+  auto_deploy: true      # false 면 학습은 실행만 남기고 배포는 set_best --run <id> --model <name> 로
+  keep_last_runs: 5      # 보관할 최근 실행 수 (현재·직전 운영 실행은 항상 보관)
+
 # ==== 리포트 ====================================================
 reporting:
   output_dir: ./artifacts/reports

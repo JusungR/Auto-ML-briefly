@@ -755,32 +755,55 @@ Python 코드에서 호출할 때는 `auto_ml.stages.train` / `auto_ml.stages.in
 `AutoMLPipeline(cfg).run()` / `auto_ml.scoring.runner.run_scoring(cfg)` 를 사용한다
 (저장소 루트가 `sys.path` 에 있어야 한다).
 
-## 모형 후보 관리 (Best 변경)
+## 모형 후보 관리 · 실행 이력 · 롤백
 
-학습 시 모든 모형이 별도 sub-artifact 로 함께 저장된다:
+### 폴더 구조
 
 ```
-artifact_dir/best.joblib                  ← 운영용 (scoring/explain 대상)
-artifact_dir/models/lgbm.joblib           ← 후보 1
-artifact_dir/models/xgb.joblib            ← 후보 2
-artifact_dir/models/catboost.joblib       ← 후보 3
-artifact_dir/models/elasticnet.joblib     ← 후보 4 (enabled: true 일 때)
-artifact_dir/models/ensemble.joblib       ← 앙상블 후보 (앙상블이 생성된 경우)
+artifact_dir/
+├── best.joblib                ← 운영 모델 (scoring/explain 이 읽는 유일한 파일)
+├── deployments.jsonl          ← 배포 이력 (운영 모델이 바뀔 때마다 한 줄, 추가만 함)
+├── models/                    ← 최신 실행의 후보 사본 (set_best 기본 대상)
+│   ├── lgbm.joblib  xgb.joblib  catboost.joblib
+│   ├── elasticnet.joblib      ← enabled: true 일 때
+│   └── ensemble.joblib        ← 앙상블이 생성된 경우
+└── runs/<YYYYMMDD_HHMMSS>/    ← 실행 스냅샷 (학습마다 하나, 쓴 뒤 수정하지 않음)
+    ├── models/*.joblib
+    ├── reports/               ← 그 실행의 리포트 사본
+    ├── predictions/test_predictions.parquet
+    └── run_info.json          ← 설정 전체, 변수 목록, 데이터 경로·행 수, 모델별 지표,
+                                  라이브러리 버전, git 커밋(있으면)
 ```
 
-`best.joblib` 은 위 sub-artifact 중 하나의 복사본이다. 기본은
-`training.primary_metric` 기준 holdout 점수 최고 모형(앙상블 포함). 각 sub-artifact 는
-독립 번들이라 그 자체로 스코어링 / SHAP 해석에 사용할 수 있다.
+각 후보 파일은 전처리기·모델·메타데이터를 담은 독립 번들이라 그 자체로 스코어링 / SHAP
+해석에 사용할 수 있다. `ensemble.joblib` 은 서브모델을 모두 내부에 포함한다.
 
-`ensemble.joblib` 은 모든 서브모델을 내부에 포함하므로, 이 파일 하나만으로
-앙상블 스코어링이 완전히 동작한다.
+### 학습 → 배포 흐름
 
-**이전 실행의 후보 정리** — 재학습 시 이번 실행에서 만들지 않은 후보 파일(예: 지난번에만
-켰던 `ensemble.joblib`)은 `artifact_dir/models/_previous/<YYYYMMDD_HHMMSS>/` 로 옮겨지고
-WARNING 이 남는다. 옛 전처리·옛 변수로 학습된 모델이 `set_best` 로 운영에 올라가는 것을
-막기 위해서다 (`set_best` 는 `models/<name>.joblib` 만 후보로 본다). 비-best 모형별 리포트
-폴더(`reporting.output_dir/sub/<name>/`)도 같은 규칙으로 `sub/_previous/<시각>/` 으로
-옮겨진다. 삭제가 아니므로 필요하면 다시 꺼내 쓸 수 있고, 보관 폴더는 자동으로 지우지 않는다.
+1. 후보 모델을 `runs/<run_id>/models/` 에 저장하고 `models/` 를 그 사본으로 통째로 교체한다
+   (이전 실행 후보가 섞이지 않는다).
+2. test 예측·리포트를 기존 위치에 쓰고 실행 폴더에도 사본을 남긴다.
+3. `versioning.auto_deploy: true`(기본) 이면 best 를 운영 모델로 배포한다. 실행이 끝까지
+   완료된 뒤에만 운영 모델이 바뀐다.
+4. `versioning.keep_last_runs`(기본 5) 를 넘는 오래된 실행을 지운다. **현재 운영 실행과
+   직전 운영 실행은 개수와 무관하게 지우지 않는다** (롤백 대상 보호).
+
+운영 모델 교체(학습 후 자동 배포, `set_best`, `rollback`) 는 모두 같은 절차를 거친다.
+- **시험 스코어링:** 대상 모델을 실제로 열고 `scoring.input_path` 의 앞 100행으로 점수를 계산해
+  본다. 열리지 않거나 점수가 이상하면 교체하지 않는다. 입력에 없는 변수가 있으면 WARNING.
+- **원자적 교체:** 임시 파일에 다 쓴 뒤 한 번에 바꾼다. 교체 중에 추론이 읽어도 깨진 파일을 보지 않는다.
+- **이력 기록:** `deployments.jsonl` 에 시각·동작(train/promote/rollback/legacy)·실행·모델·점수·
+  직전 운영 모델을 남긴다.
+
+```yaml
+versioning:
+  auto_deploy: true      # false 면 학습은 실행만 남기고, 배포는 set_best 로 한다
+  keep_last_runs: 5      # 보관할 최근 실행 수 (운영·직전 운영 실행은 항상 보관)
+```
+
+**기존 폴더** — `runs/` 가 없는 예전 구조의 `artifact_dir` 은 다음 학습 때 기존 `models/`·
+`best.joblib`·리포트·test 예측을 `runs/legacy_<원래 학습 시각>/` 으로 담아 둔다. 그래서 첫 롤백이
+예전 운영 모델로 돌아갈 수 있다.
 
 ### 학습 시점에 best 강제 지정
 
@@ -793,21 +816,34 @@ training:
 
 알 수 없는 모형 이름이면 학습이 명시적 `ValueError` 로 실패한다.
 
-### 학습 후 best 교체 (재학습 없이)
+### 학습 후 운영 모델 교체 · 롤백 (재학습 없이)
 
 ```bash
+# 최신 실행 후보 중 하나로 교체
 python -m auto_ml.cli.set_best --config configs/example.yaml --model xgb
-# artifact_dir/models/xgb.joblib → artifact_dir/best.joblib 로 복사.
-# scoring / explain 이 즉시 새 모형 사용.
 
-# 앙상블을 best 로 승격:
-python -m auto_ml.cli.set_best --config configs/example.yaml --model ensemble
+# 이전 실행의 모델로 교체
+python -m auto_ml.cli.set_best --config configs/example.yaml --run 20261110_093000 --model lgbm
+
+# 직전 운영 모델로 되돌리기 — 한 번 더 실행하면 원래대로 (현재 ↔ 직전 전환)
+python -m auto_ml.cli.rollback --config configs/example.yaml
+
+# 실행 목록(운영·직전 운영 표시)과 최근 배포 이력 보기
+python -m auto_ml.cli.set_best --config configs/example.yaml --list
 ```
 
-`best.joblib` 의 메타데이터는 해당 sub-artifact 의 메타데이터와 같고(학습 시각·전략별 상세 포함),
-`extra.best_selection` 에 선정 경위가 추가된다: `auto_by_metric`(자동) / `user_override`
-(`training.best_model` 지정) / `promoted`(set_best). 승격된 경우 `promoted_at` /
-`promoted_from`(이전 best 모형명) 도 기록되어 운영 추적이 가능하다.
+`best.joblib` 의 메타데이터는 배포한 후보 파일의 메타데이터와 같고(학습 시각·전략별 상세·
+`run_id` 포함), `extra` 에 배포 정보가 추가된다:
+- `best_selection`: `auto_by_metric`(자동) / `user_override`(`training.best_model` 지정) /
+  `promoted`(set_best) / `rollback`
+- `deployed_at`
+- `promoted_at` / `promoted_from`: set_best·rollback 인 경우만. `promoted_from` 은 이전 운영 모델 이름
+
+**주의**
+- 실행마다 test 데이터·변수 구성이 다를 수 있다. 실행 간 점수를 단순 비교하지 말고 `run_info.json` 을 함께 확인한다.
+- 코드나 라이브러리를 업데이트한 뒤에는 오래된 실행의 모델이 열리지 않을 수 있다. 이때 롤백은
+  시험 스코어링 단계에서 거부되고, 운영 모델은 바뀌지 않는다.
+- 같은 `artifact_dir` 로 학습 두 개를 동시에 실행하는 것은 지원하지 않는다.
 
 ### 후보 모형의 상세 리포트
 

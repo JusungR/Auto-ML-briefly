@@ -44,6 +44,7 @@ Stage scripts hand off via `<work_dir>/*.pkl.gz` (default `<artifact_dir parent>
 ```bash
 python -m auto_ml.explain.runner --config configs/explain.yaml
 python -m auto_ml.cli.set_best --config configs/example.yaml --model lgbm
+python -m auto_ml.cli.rollback --config configs/example.yaml
 ```
 
 **Python API** (repo root on `sys.path`):
@@ -66,7 +67,7 @@ outputs = AutoMLPipeline(load_config("configs/example.yaml")).run()
 2. **Preprocess** — `PreprocessingPipeline` applies: null imputation → outlier winsorizing → skew transform → scaling. Fitted on train, `transform()`-only on test.
 3. **Feature selection** (optional) — `StabilitySelector` runs Stability Selection (Meinshausen & Bühlmann 2010) using repeated subsampling with L1 logistic or LightGBM base estimators. Controlled by `feature_selection.enabled`.
 4. **Train** — `Trainer` (in `auto_ml/models/trainer.py`) loops over enabled models: Optuna hyperparameter tuning → stratified K-fold CV → final fit. Builds an optional ensemble. Selects `best` by `primary_metric` on the test set (or user override).
-5. **Report + save** — generates HTML/PDF reports; saves every model as `artifact_dir/models/<name>.joblib` and copies best to `artifact_dir/best.joblib`.
+5. **Save + report + deploy** — saves every model to `artifact_dir/runs/<run_id>/models/<name>.joblib` (copied to `artifact_dir/models/`), writes test predictions and HTML/PDF reports (copied into the run), then deploys best to `artifact_dir/best.joblib` (see Runs below).
 
 ### Config (`auto_ml/config.py`)
 
@@ -95,7 +96,16 @@ outputs = AutoMLPipeline(load_config("configs/example.yaml")).run()
 
 Each `.joblib` artifact bundles three objects: `(preprocessor, model, ArtifactMetadata)`. `ArtifactMetadata` carries `feature_columns`, `selected_features`, `categorical_columns`, `id_columns`, `target_column`, `primary_metric`, and an `extra` dict with training details.
 
-`python -m auto_ml.cli.set_best` can swap `best.joblib` to any sub-artifact without retraining by overwriting the symlink/copy.
+### Runs, deployments, rollback (`auto_ml/versioning.py`)
+
+Each training writes an immutable snapshot `artifact_dir/runs/<run_id>/` (`models/*.joblib`, `reports/`, `predictions/`, `run_info.json`) and replaces `artifact_dir/models/` wholesale with a copy of the latest run. Every production change goes through `versioning.deploy()` — load + test-score on `scoring.input_path` head(100), atomic `best.joblib` replace (`save_artifact` writes temp + `os.replace`), append to `deployments.jsonl` (`action`: train/promote/rollback/legacy, `previous` ref). `VersioningConfig`: `auto_deploy` (default true), `keep_last_runs` (default 5; current and previous production runs are never pruned). An old `artifact_dir` without `runs/` is migrated into `runs/legacy_*` on the next training.
+
+```bash
+python -m auto_ml.cli.set_best --config <yaml> --model xgb                 # from latest run (models/)
+python -m auto_ml.cli.set_best --config <yaml> --run <run_id> --model lgbm # from an earlier run
+python -m auto_ml.cli.set_best --config <yaml> --list                      # runs + deployment history
+python -m auto_ml.cli.rollback --config <yaml>                             # toggle to previous production
+```
 
 ### Scoring and Explain
 
