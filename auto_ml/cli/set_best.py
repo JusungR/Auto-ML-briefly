@@ -101,8 +101,10 @@ def describe(config: AutoMLConfig, n_history: int = 10) -> str:
         if d.name == prev.get("run_id"):
             flags.append(f"previous: {prev.get('model')}")
         best = info.get("best_model")
-        metric = (info.get("models") or {}).get(best, {}).get("test_metrics", {}).get(
-            info.get("primary_metric", ""))
+        models_info = info.get("models")
+        # legacy 실행이나 손상된 run_info 에서도 목록 출력이 실패하지 않게 방어한다
+        model_info = models_info.get(best) if isinstance(models_info, dict) else None
+        metric = ((model_info or {}).get("test_metrics") or {}).get(info.get("primary_metric", ""))
         best_txt = f"best={best} {info.get('primary_metric')}={metric:.4f}" if metric is not None \
             else ("legacy import" if info.get("legacy") else "")
         lines.append(

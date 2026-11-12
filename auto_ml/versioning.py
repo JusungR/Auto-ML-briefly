@@ -334,6 +334,19 @@ def deploy(
 # ----------------------------------------------------------------------
 # 기존 폴더 이전 / 최신 사본 / 보존 정책
 # ----------------------------------------------------------------------
+def _legacy_trained_at(path: Path) -> datetime:
+    """과거 모델 파일의 학습 시각 — 메타데이터 ``trained_at`` 우선, 없으면 파일 수정 시각.
+
+    파일 수정 시각은 복사·git checkout 으로 바뀌므로 보조 수단으로만 쓴다.
+    """
+    try:
+        trained = load_artifact(path)["metadata"].trained_at
+        dt = datetime.fromisoformat(str(trained))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)  # 과거 값은 UTC naive
+    except Exception:  # noqa: BLE001
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+
+
 def migrate_legacy(cfg: AutoMLConfig) -> str | None:
     """``runs/`` 가 없는 기존 artifact_dir 을 ``runs/legacy_<시각>/`` 실행으로 담는다.
 
@@ -353,8 +366,7 @@ def migrate_legacy(cfg: AutoMLConfig) -> str | None:
     if not subs and not best.exists():
         return None
 
-    stamp_src = best if best.exists() else subs[-1]
-    trained = datetime.fromtimestamp(stamp_src.stat().st_mtime, timezone.utc)
+    trained = _legacy_trained_at(best if best.exists() else subs[-1])
     run_dir = _unique_dir(
         runs_root(artifact_dir), "legacy_" + trained.astimezone().strftime("%Y%m%d_%H%M%S"),
     )
@@ -376,7 +388,8 @@ def migrate_legacy(cfg: AutoMLConfig) -> str | None:
         "created_at": trained.isoformat(),
         "legacy": True,
         "note": "Migrated from the artifact_dir layout before run versioning.",
-        "models": [p.stem for p in subs],
+        # 새 실행과 같은 형태(이름 → 정보). 과거 파일에는 지표 기록이 없어 비어 있다.
+        "models": {p.stem: {} for p in subs},
     })
 
     if best.exists() and not read_deployments(artifact_dir):

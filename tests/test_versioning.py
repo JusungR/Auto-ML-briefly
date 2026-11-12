@@ -186,10 +186,18 @@ def test_legacy_layout_is_migrated_and_rollback_restores_it(tmp_path, tiny_binar
     shutil.rmtree(art / "runs")
     (art / "deployments.jsonl").unlink()
     legacy_scores = _scores(_prod(cfg), cfg)
+    trained_at = _prod(cfg)["metadata"].trained_at
+    (art / "best.joblib").touch()  # 복사·checkout 처럼 수정 시각이 바뀌어도
 
     _train(cfg, 2)
     runs = versioning.list_runs(art)
     assert runs[0].name.startswith("legacy_") and len(runs) == 2
+    # 실행 이름·시각은 파일 수정 시각이 아니라 메타데이터의 학습 시각을 따른다
+    from datetime import datetime, timezone
+
+    local = datetime.fromisoformat(trained_at).replace(tzinfo=timezone.utc).astimezone()
+    assert runs[0].name == f"legacy_{local.strftime('%Y%m%d_%H%M%S')}"
+    assert "legacy import" in describe(cfg)  # --list 가 legacy 실행에서도 동작
     log = versioning.read_deployments(art)
     assert [e["action"] for e in log] == ["legacy", "train"]
 
