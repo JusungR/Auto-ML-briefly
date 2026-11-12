@@ -29,6 +29,9 @@ class XGBModel(BaseModel):
     name = "xgb"
     ITER_PARAM_NAME = "n_estimators"
     THREAD_PARAM_NAMES = ("n_jobs", "nthread")
+    # 범주 수 < max_cat_to_onehot 이면 one-hot 분할 — 실측(2.1.2): 범주 6개면 7 부터
+    ONEHOT_PARAM_NAME = "max_cat_to_onehot"
+    ONEHOT_OFFSET = 1
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "objective": "binary:logistic",
@@ -150,6 +153,7 @@ class XGBModel(BaseModel):
     ) -> "XGBModel":
         self.feature_columns = list(X_train.columns)
         params = self._resolved_params()
+        params.update(self._onehot_params(X_train))
         n_estimators = params.pop("n_estimators", 2000)
 
         self._fit_categories(X_train)

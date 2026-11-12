@@ -144,6 +144,7 @@ class HyperparameterOptimizer:
                     random_state=cfg.tuning.random_state,
                     loss=loss,
                     n_jobs=cfg.training.n_jobs,
+                    categorical_encoding=cfg.models[model_name].categorical_encoding,
                 )
                 model.fit(
                     X_tr, y_tr, X_va, y_va,

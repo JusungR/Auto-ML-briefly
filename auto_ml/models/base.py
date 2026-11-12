@@ -18,6 +18,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from auto_ml.utils.logger import get_logger
+
+logger = get_logger("models")
+
 
 class BaseModel(ABC):
     """모든 모델 래퍼가 따르는 공통 인터페이스.
@@ -40,6 +44,15 @@ class BaseModel(ABC):
     # 별칭). 사용자가 fixed_params 에 이 중 하나를 직접 쓰면 n_jobs 설정보다 우선한다.
     # 스레드 개념이 없는 모델은 빈 튜플.
     THREAD_PARAM_NAMES: tuple[str, ...] = ()
+
+    # categorical_encoding="onehot" 일 때 넣을 라이브러리 파라미터 (없으면 이 모델은 무시).
+    # 범주 하나씩 분할되는 경계가 라이브러리마다 달라 ONEHOT_OFFSET 으로 맞춘다
+    # (실측: LightGBM·XGBoost 는 범주 수 + 1, CatBoost 는 범주 수).
+    ONEHOT_PARAM_NAME: str | None = None
+    ONEHOT_OFFSET: int = 0
+    ONEHOT_PARAM_MAX: int | None = None
+    # onehot 인데 범주 수가 이보다 많으면 범주값 정리를 권하는 WARNING
+    ONEHOT_WARN_CARDINALITY: int = 50
 
     def __init__(
         self,
@@ -66,6 +79,54 @@ class BaseModel(ABC):
         self._focal_active: bool = False
         # CPU 스레드 수 (None = 라이브러리 기본 = 전체 코어). set_n_jobs 로 바꾼다.
         self.n_jobs: int | None = None
+        # 범주형 분할 방식 ("native" | "onehot"). set_categorical_encoding 으로 바꾼다.
+        self.categorical_encoding: str = "native"
+
+    # ------------------------------------------------------------------
+    # 범주형 분할 방식
+    # ------------------------------------------------------------------
+    def set_categorical_encoding(self, encoding: str | None) -> "BaseModel":
+        """``"native"`` (라이브러리 기본) 또는 ``"onehot"`` (범주 하나씩 분할). 학습 전에 부른다."""
+        encoding = encoding or "native"
+        if encoding not in ("native", "onehot"):
+            raise ValueError(f"categorical_encoding must be 'native' or 'onehot', got {encoding!r}")
+        self.categorical_encoding = encoding
+        return self
+
+    def _onehot_params(self, X: pd.DataFrame) -> dict[str, Any]:
+        """``categorical_encoding == "onehot"`` 이면 범주 하나씩 분할하게 하는 파라미터.
+
+        학습 데이터의 범주형 변수 중 가장 많은 범주 수 k 에 맞춰 값을 정한다. 사용자가
+        ``fixed_params`` (또는 튜닝 공간) 에 같은 파라미터를 직접 지정했으면 비운다.
+        """
+        name = self.ONEHOT_PARAM_NAME
+        if getattr(self, "categorical_encoding", "native") != "onehot" or name is None:
+            return {}
+        if name in self.params:
+            logger.info(
+                "%s: categorical_encoding=onehot but %s=%s is set in params — using it",
+                type(self).__name__, name, self.params[name],
+            )
+            return {}
+        cols = [c for c in self.categorical_columns if c in X.columns]
+        if not cols:
+            return {}
+        k = max(int(X[c].nunique(dropna=True)) for c in cols)
+        if k > self.ONEHOT_WARN_CARDINALITY:
+            logger.warning(
+                "%s: categorical_encoding=onehot with up to %d categories per column — "
+                "consider preprocessing.categorical_levels to keep only meaningful values",
+                type(self).__name__, k,
+            )
+        value = max(k, 1) + self.ONEHOT_OFFSET
+        if self.ONEHOT_PARAM_MAX is not None and value > self.ONEHOT_PARAM_MAX:
+            logger.warning(
+                "%s: %s capped at %d (needs %d) — columns with more categories keep the "
+                "library's default handling", type(self).__name__, name,
+                self.ONEHOT_PARAM_MAX, value,
+            )
+            value = self.ONEHOT_PARAM_MAX
+        return {name: value}
 
     # ------------------------------------------------------------------
     # 스레드 수

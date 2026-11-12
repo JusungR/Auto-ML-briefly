@@ -240,6 +240,9 @@ def postprocess(
             "fold_best_iterations": mr.fold_best_iterations,
             "best_params": mr.params,
             "training_mode": cfg.training.final_fit_strategy,
+            "categorical_encoding": (
+                cfg.models[name].categorical_encoding if name in cfg.models else None
+            ),
             "tuning": (
                 {"best_value": mr.tuning.best_value, "n_trials": mr.tuning.n_trials}
                 if mr.tuning is not None
@@ -288,6 +291,7 @@ def postprocess(
         },
         "feature_columns": prep.feature_columns,
         "selected_features": prep.selected_features,
+        "categorical_levels": prep.preprocessor.category_grouping_summary(),
         "categorical_columns": prep.categorical_columns,
         "data": {
             "train": _file_info(cfg.train_data_path, len(prep.y_train)),

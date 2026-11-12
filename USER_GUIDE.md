@@ -497,7 +497,7 @@ internal_score,continuous,false
 전처리는 **항상** 다음 순서로 적용됩니다.
 
 ```
-(1) 결측 처리  →  (2) 이상치 처리  →  (2.5) skew 변환  →  (3) 스케일링
+(1) 결측 처리  →  (1.5) 범주값 정리(선택)  →  (2) 이상치 처리  →  (2.5) skew 변환  →  (3) 스케일링
 ```
 
 학습 시 산출된 통계량(중앙값, 분위수 경계, 분위수 테이블, 스케일러 fit 결과)은 모두
@@ -519,6 +519,8 @@ internal_score,continuous,false
 | `skew_method` | str | `signed_log1p` | `signed_log1p` / `quantile_normal` / `none` | skew 변환 방식 |
 | `skew_threshold` | float | `1.0` | — | `|skew| > threshold` 인 컬럼만 변환 |
 | `scaling_method` | str | `standard` | `standard` / `minmax` / `robust` / `none` | 스케일링 방식 |
+| `categorical_levels` | dict | `{}` | 변수 → `{keep: [...]}` 또는 `{min_count: N}` | 범주형 변수별로 남길 값만 남기고 나머지는 하나로 묶음 (아래 "범주값 정리") |
+| `categorical_other_label` | str | `__other__` | 데이터에 없는 값 | 묶인 값의 이름 |
 
 ### YAML 예시
 
@@ -538,6 +540,12 @@ preprocessing:
   skew_threshold: 1.0
 
   scaling_method: standard                    # standard | minmax | robust | none
+
+  # 범주값 정리 (선택) — 변수마다 keep 또는 min_count 중 하나
+  categorical_levels:
+    region:  { keep: ["서울", "부산"] }        # 이 값만 남기고 나머지 → __other__
+    channel: { min_count: 50 }                # 학습 데이터에서 50건 이상인 값만 남김
+  categorical_other_label: __other__
 ```
 
 ### 동작 메모
@@ -562,6 +570,22 @@ preprocessing:
   (1% 이상 WARNING, 그 미만 INFO). 처리 방식은 모델마다 다릅니다 — XGBoost·LightGBM 은
   결측과 같게, ElasticNet 은 모든 One-hot 열 0, CatBoost 는 자체 규칙.
 - 이 기능 이전에 학습된 `best.joblib` 은 기존 방식으로 동작합니다 (재학습 전까지 결과 동일).
+
+**범주값 정리 (`categorical_levels`)**
+- 실무에서 의미 있는 값만 따로 보고, 건수가 적거나 의미가 적은 값은 하나로 묶을 때 씁니다.
+  변수마다 `keep`(남길 값 목록) 또는 `min_count`(학습 데이터 기준 최소 건수) 중 **하나**를 적습니다.
+- 남기지 않은 값은 `categorical_other_label`(기본 `__other__`) 로 바뀝니다. 남길 값 목록은 학습 때
+  정해져 모델 파일에 저장되므로 추론에도 같은 규칙이 적용되고, **추론 때 처음 보는 값도
+  `__other__`** 로 갑니다(그 비율은 로그로 남김).
+- `keep` 값도 위 정규화 규칙으로 비교하므로 YAML 에 `keep: [1, 2]` 로 적어도 `"1"`, `"2"` 와 맞습니다.
+  학습 데이터에 없는 값을 적으면 오타일 수 있어 WARNING 을 남깁니다.
+- 결측 처리 **다음**에 적용됩니다. 결측을 채운 값(`MISSING` 또는 최빈값) 도 남길 값이 아니면 묶입니다.
+  결측을 따로 보려면 `categorical_null_strategy: constant` 로 두고 `keep` 에 `MISSING` 을 넣으세요.
+- 변수 이름은 그대로라 변수 선택·중요도·SHAP·리포트는 원래 변수 단위로 나옵니다. 남긴 값과
+  묶인 비율은 학습 로그와 `runs/<실행 ID>/run_info.json` 의 `categorical_levels` 에 남습니다.
+- 대상은 `features.csv` 에서 `category` 로 사용 중인 변수여야 합니다(아니면 에러). `__other__` 가
+  실제 값으로 이미 있으면 에러이므로 `categorical_other_label` 을 바꾸세요.
+- 트리 모델이 남긴 값을 하나씩 떼어 보게 하려면 [§13 `categorical_encoding: onehot`](#131-공통-구조) 과 함께 씁니다.
 
 **이상치 처리**
 - `clip` (기본): 경계 밖 값을 경계로 잘라냅니다.
@@ -837,6 +861,30 @@ tuning:
 | `fixed_params` | dict | `{}` | 항상 적용되는 라이브러리 원본 파라미터 |
 | `search_space` | dict | `{}` | Optuna 탐색 공간. 비어 있으면 튜닝 생략 |
 | `loss` | str | `logloss` | `logloss` (기본) / `focal` (Focal Loss) |
+| `categorical_encoding` | str | `native` | 트리 모델의 범주형 분할 방식. `native` (라이브러리 기본) / `onehot` (범주 하나씩 분할) |
+
+**범주형 분할 방식 (`categorical_encoding`)**
+- `native` (기본): LightGBM·XGBoost 는 여러 범주를 묶어서 한 번에 분할하고, CatBoost 는 범주형 통계(CTR) 를 씁니다.
+- `onehot`: 범주 하나씩 "그 값이냐 아니냐" 로만 분할합니다 — 원-핫(더미) 변수를 넣은 것과 같은 분할이지만,
+  입력 변수는 그대로라 중요도·SHAP 은 원래 변수 단위로 나옵니다. 학습 데이터에서 범주가 가장 많은 변수의
+  범주 수 k 에 맞춰 라이브러리 파라미터를 넣습니다.
+
+  | 모델 | 넣는 값 |
+  |---|---|
+  | LightGBM | `max_cat_to_onehot = k + 1` |
+  | XGBoost | `max_cat_to_onehot = k + 1` |
+  | CatBoost | `one_hot_max_size = k` (최대 255) |
+
+- 해당 모델의 **모든 범주형 변수**에 적용됩니다. 변수마다 의미 있는 값만 보게 하려면 [§9 범주값 정리](#9-전처리-preprocessing)
+  (`categorical_levels`) 로 값을 줄인 뒤 함께 쓰세요. 범주 수가 50 을 넘으면 정리를 권하는 WARNING 을 남깁니다.
+- `fixed_params` 나 `search_space` 에 위 파라미터를 직접 쓰면 그 값이 우선합니다.
+- ElasticNet 은 원래 원-핫이라 이 설정을 무시합니다.
+
+```yaml
+models:
+  lgbm:     { categorical_encoding: onehot }
+  catboost: { categorical_encoding: onehot }
+```
 
 `search_space` 항목 형식:
 

@@ -36,6 +36,7 @@ def build_model(
     random_state: int = 42,
     loss: str = "logloss",
     n_jobs: int | None = None,
+    categorical_encoding: str = "native",
 ) -> BaseModel:
     """모델 이름으로 인스턴스를 생성한다.
 
@@ -46,6 +47,7 @@ def build_model(
         random_state: 시드.
         loss: 손실 함수 식별자 ("logloss" | "focal"). 기본 logloss.
         n_jobs: 스레드 수 (``TrainingConfig.n_jobs``). None 이면 라이브러리 기본(전체 코어).
+        categorical_encoding: 범주형 분할 방식 (``ModelConfig.categorical_encoding``).
 
     Returns:
         BaseModel 인스턴스 (아직 fit 되지 않은 상태).
@@ -63,4 +65,4 @@ def build_model(
         categorical_columns=categorical_columns,
         random_state=random_state,
         loss=loss,
-    ).set_n_jobs(n_jobs)
+    ).set_n_jobs(n_jobs).set_categorical_encoding(categorical_encoding)

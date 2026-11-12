@@ -6,7 +6,8 @@
 범주형 컬럼은 본 파이프라인에서 값 정규화(``utils.categorical``) 와
 결측 채움까지만 수행한다. 정규화는 ``1`` / ``1.0`` / ``"1.0"`` 처럼 같은
 범주가 타입 차이로 갈라지는 것을 막기 위해 모든 값을 같은 규칙의 문자열로
-맞춘다. 인코딩은 모델 래퍼 내부에서 처리한다 — LightGBM/CatBoost/XGBoost 는
+맞춘다. ``categorical_levels`` 가 있으면 결측 대체 직후 변수별로 남길 값만 남기고
+나머지를 ``categorical_other_label`` 로 묶는다 (``CategoryGrouper``). 인코딩은 모델 래퍼 내부에서 처리한다 — LightGBM/CatBoost/XGBoost 는
 native 처리, ElasticNet 은 One-hot. 이렇게 분리하면 단일 전처리 결과를
 모든 모델이 공통으로 받아 사용할 수 있다.
 
@@ -20,6 +21,7 @@ from typing import Any
 import pandas as pd
 
 from auto_ml.config import PreprocessingConfig
+from auto_ml.preprocessing.category_grouper import CategoryGrouper
 from auto_ml.preprocessing.imputer import NullImputer
 from auto_ml.preprocessing.outlier import OutlierHandler
 from auto_ml.preprocessing.scaler import NumericScaler
@@ -56,6 +58,18 @@ class PreprocessingPipeline:
             numeric_fill_value=config.numeric_null_fill_value,
             categorical_strategy=config.categorical_null_strategy,
             categorical_fill_value=config.categorical_null_fill_value,
+        )
+        # 범주값 정리 (선택). 대상은 사용 중인 범주형 변수여야 한다.
+        levels = dict(getattr(config, "categorical_levels", None) or {})
+        bad = [c for c in levels if c not in self.categorical_columns]
+        if bad:
+            raise ValueError(
+                f"preprocessing.categorical_levels: {bad} are not categorical features in use "
+                f"(categorical features: {self.categorical_columns})"
+            )
+        self._grouper: CategoryGrouper | None = (
+            CategoryGrouper(levels, getattr(config, "categorical_other_label", "__other__"))
+            if levels else None
         )
         self.outlier = OutlierHandler(
             numeric_columns=self.numeric_columns,
@@ -96,6 +110,8 @@ class PreprocessingPipeline:
         df = self._normalize(df)
         self._fit_column_defaults(df)
         step1 = self.imputer.fit_transform(df)
+        if self._grouper is not None:
+            step1 = self._grouper.fit_transform(step1)
         self._categorical_levels = {
             col: frozenset(step1[col].dropna().unique())
             for col in self.categorical_columns
@@ -113,6 +129,9 @@ class PreprocessingPipeline:
             raise RuntimeError("PreprocessingPipeline must be fit before transform.")
         x = self._normalize(df)
         x = self.imputer.transform(x)
+        grouper = getattr(self, "_grouper", None)  # 과거 artifact 에는 속성이 없다
+        if grouper is not None:
+            x = grouper.transform(x)
         x = self.outlier.transform(x)
         x = self.skew.transform(x)
         x = self.scaler.transform(x)
@@ -127,6 +146,12 @@ class PreprocessingPipeline:
         if not getattr(self, "_normalize_categories", False):
             return df
         return normalize_categories(df, self.categorical_columns)
+
+    # ------------------------------------------------------------------
+    def category_grouping_summary(self) -> dict[str, dict[str, Any]]:
+        """범주값 정리 요약 (컬럼별 남긴 값·묶인 값 수·묶인 행 비율). 정리가 없으면 빈 dict."""
+        grouper = getattr(self, "_grouper", None)
+        return dict(grouper.summary_) if grouper is not None else {}
 
     # ------------------------------------------------------------------
     def unseen_category_stats(

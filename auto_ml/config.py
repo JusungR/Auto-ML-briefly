@@ -171,6 +171,44 @@ class PreprocessingConfig:
     # 3) 스케일링 (Scaling) — 수치형에만 적용
     scaling_method: str = "standard"               # standard | minmax | robust | none
 
+    # 1.5) 범주값 정리 (범주형, 결측 처리 직후) — 변수별로 남길 값만 남기고 나머지는 묶는다.
+    #   {변수: {"keep": [값, ...]}}   지정한 값만 남김
+    #   {변수: {"min_count": N}}      학습 데이터에서 N 건 이상인 값만 남김
+    # 남기지 않은 값(학습 때 없던 값 포함) 은 categorical_other_label 로 바뀐다.
+    categorical_levels: dict[str, dict[str, Any]] = field(default_factory=dict)
+    categorical_other_label: str = "__other__"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.categorical_levels, dict):
+            raise ValueError("preprocessing.categorical_levels must be a mapping of column -> rule")
+        if not isinstance(self.categorical_other_label, str) or not self.categorical_other_label:
+            raise ValueError("preprocessing.categorical_other_label must be a non-empty string")
+        for col, rule in self.categorical_levels.items():
+            if not isinstance(rule, dict):
+                raise ValueError(
+                    f"preprocessing.categorical_levels.{col} must be a mapping with "
+                    f"'keep' or 'min_count', got {rule!r}"
+                )
+            unknown = set(rule) - {"keep", "min_count"}
+            if unknown or len(rule) != 1:
+                raise ValueError(
+                    f"preprocessing.categorical_levels.{col} must have exactly one of "
+                    f"'keep' or 'min_count', got keys {sorted(rule)}"
+                )
+            if "keep" in rule:
+                keep = rule["keep"]
+                if not isinstance(keep, (list, tuple)) or not keep:
+                    raise ValueError(
+                        f"preprocessing.categorical_levels.{col}.keep must be a non-empty list"
+                    )
+            else:
+                n = rule["min_count"]
+                if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+                    raise ValueError(
+                        f"preprocessing.categorical_levels.{col}.min_count must be an "
+                        f"integer >= 1, got {n!r}"
+                    )
+
 
 @dataclass
 class ModelConfig:
@@ -187,6 +225,12 @@ class ModelConfig:
               log-loss) 또는 ``"focal"`` (Focal Loss, Lin et al. 2017).
               focal 선택 시 ``focal_gamma`` / ``focal_alpha`` 를 ``fixed_params``
               (또는 ``search_space``) 에 두어 조정 가능. 기본 gamma=2.0, alpha=0.25.
+        categorical_encoding: 트리 모델의 범주형 분할 방식. ``"native"`` (기본) 는
+              라이브러리 기본 (여러 범주를 묶어 분할), ``"onehot"`` 은 범주 하나씩
+              "그 값이냐 아니냐" 로만 분할한다 (원-핫과 같은 분할). 모델의 모든 범주형
+              변수에 적용되며, LightGBM·XGBoost 는 ``max_cat_to_onehot``, CatBoost 는
+              ``one_hot_max_size`` 를 학습 데이터의 범주 수에 맞춰 넣는다 (``fixed_params``
+              에 직접 쓰면 그 값이 우선). ElasticNet 은 항상 원-핫이라 무시한다.
 
     ``search_space`` 형식 (key 는 모델 라이브러리 원본 파라미터 이름):
 
@@ -208,11 +252,17 @@ class ModelConfig:
     fixed_params: dict[str, Any] = field(default_factory=dict)
     search_space: dict[str, dict[str, Any]] = field(default_factory=dict)
     loss: str = "logloss"
+    categorical_encoding: str = "native"
 
     def __post_init__(self) -> None:
         if self.loss not in {"logloss", "focal"}:
             raise ValueError(
                 f"ModelConfig.loss must be 'logloss' or 'focal', got {self.loss!r}"
+            )
+        if self.categorical_encoding not in {"native", "onehot"}:
+            raise ValueError(
+                "ModelConfig.categorical_encoding must be 'native' or 'onehot', "
+                f"got {self.categorical_encoding!r}"
             )
 
 

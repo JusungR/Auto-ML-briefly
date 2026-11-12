@@ -180,6 +180,30 @@ preprocessing:
 학습 시 fit 된 스케일러는 artifact 에 저장되어 스코어링 시 동일 변환이
 적용된다.
 
+## 범주값 정리 · 범주형 분할 방식
+
+범주형 변수 중 의미 있는 값만 따로 보고 나머지는 묶을 때 쓴다. 기본값이면 지금 동작과 같다.
+
+```yaml
+preprocessing:
+  categorical_levels:                 # 결측 처리 직후, 변수마다 keep 또는 min_count 중 하나
+    region:  { keep: ["서울", "부산"] }  # 이 값만 남기고 나머지 → __other__
+    channel: { min_count: 50 }        # 학습 데이터에서 50건 이상인 값만 남김
+  categorical_other_label: __other__  # 묶인 값 이름 (추론 때 처음 보는 값도 여기로)
+
+models:
+  lgbm:     { categorical_encoding: onehot }   # native(기본) | onehot
+  catboost: { categorical_encoding: onehot }
+```
+
+- `categorical_levels` — 남길 값 목록은 학습 때 정해져 모델 파일에 저장되므로 추론에도 같게 적용된다.
+  결측을 채운 값(`MISSING`·최빈값) 도 남길 값이 아니면 묶인다.
+- `categorical_encoding: onehot` — 트리 모델이 범주 하나씩 "그 값이냐 아니냐" 로만 분할한다(원-핫과 같은
+  분할). LightGBM·XGBoost 는 `max_cat_to_onehot`, CatBoost 는 `one_hot_max_size` 를 학습 데이터 범주 수에
+  맞춰 넣는다. 그 모델의 모든 범주형 변수에 적용되고, `fixed_params` 에 직접 쓴 값이 우선한다.
+  ElasticNet 은 원래 원-핫이라 무시한다.
+- 변수 이름은 그대로라 변수 선택·중요도·SHAP 은 원래 변수 단위로 나온다. 상세는 USER_GUIDE §9·§13.
+
 ## 변수 선택 (Stability Selection)
 
 전처리 직후, 모델 학습 직전에 적용되는 선택적 단계이다. 단일 fit 한 번의

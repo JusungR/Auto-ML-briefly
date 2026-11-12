@@ -21,6 +21,9 @@ class CatBoostModel(BaseModel):
     name = "catboost"
     ITER_PARAM_NAME = "iterations"
     THREAD_PARAM_NAMES = ("thread_count",)
+    # 범주 수 ≤ one_hot_max_size 이면 one-hot (CPU 최대 255) — 실측(1.2.10): 범주 6개면 6 부터
+    ONEHOT_PARAM_NAME = "one_hot_max_size"
+    ONEHOT_PARAM_MAX = 255
 
     DEFAULT_PARAMS: dict[str, Any] = {
         "loss_function": "Logloss",
@@ -74,6 +77,7 @@ class CatBoostModel(BaseModel):
     ) -> "CatBoostModel":
         self.feature_columns = list(X_train.columns)
         params = self._resolved_params()
+        params.update(self._onehot_params(X_train))
         if early_stopping_rounds:
             params.setdefault("early_stopping_rounds", early_stopping_rounds)
 

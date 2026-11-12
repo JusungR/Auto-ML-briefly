@@ -41,6 +41,13 @@ preprocessing:
   # 3) 스케일링 (수치형)
   scaling_method: standard                  # standard | minmax | robust | none
 
+  # 1.5) 범주값 정리 (선택, 결측 처리 직후) — 변수마다 keep 또는 min_count 중 하나.
+  #   남기지 않은 값(추론 때 처음 보는 값 포함) 은 categorical_other_label 로 묶인다.
+  # categorical_levels:
+  #   region:  { keep: ["서울", "부산"] }
+  #   channel: { min_count: 50 }
+  categorical_other_label: __other__
+
 # ==== 변수 선택 (Stability Selection, Meinshausen & Bühlmann 2010) ====
 # 전처리 직후, 모델 학습 직전 단계. enabled=false 면 통째로 건너뛴다.
 feature_selection:
@@ -94,6 +101,7 @@ tuning:
 models:
   lgbm:
     enabled: true
+    categorical_encoding: native            # native | onehot (범주 하나씩 분할). xgb·catboost 도 동일
     fixed_params:
       objective: binary
       metric: auc

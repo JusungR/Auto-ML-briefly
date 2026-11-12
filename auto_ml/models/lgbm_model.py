@@ -22,6 +22,10 @@ class LGBMModel(BaseModel):
     name = "lgbm"
     ITER_PARAM_NAME = "n_estimators"
     THREAD_PARAM_NAMES = ("n_jobs", "num_threads", "num_thread", "nthread", "nthreads")
+    # LightGBM 은 범주 bin 수(= 범주 수 + 1, 결측·기타용 bin 포함) ≤ max_cat_to_onehot 일 때
+    # one-vs-rest 분할 — 실측(4.7): 범주 6개면 7 부터 범주 하나씩 분할
+    ONEHOT_PARAM_NAME = "max_cat_to_onehot"
+    ONEHOT_OFFSET = 1
 
     # 운영에서 보수적으로 동작하도록 한 기본 하이퍼파라미터.
     # 사용자 params 가 우선이며, 본 dict 는 그 위에 덮어써지는 fallback 이다.
@@ -82,6 +86,7 @@ class LGBMModel(BaseModel):
     ) -> "LGBMModel":
         self.feature_columns = list(X_train.columns)
         params = self._resolved_params()
+        params.update(self._onehot_params(X_train))
         n_estimators = params.pop("n_estimators", 2000)
 
         X_tr = self._to_categorical(X_train)
