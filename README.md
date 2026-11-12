@@ -3,6 +3,14 @@
 이진 분류(0/1) 문제를 자동으로 학습·스코어링하는 사내 라이브러리.
 폐쇄 환경 이관 / 운영을 전제로 모듈화·설정 주도(YAML)로 설계되었다.
 
+## 최근 변경 요약
+
+- **실행 이력·롤백** — 학습마다 `artifact_dir/runs/` 에 실행 전체 보관, 배포 이력, `python -m auto_ml.cli.rollback`.
+- **배포 안전장치** — 모델이 쓰는 변수가 스코어링 입력에 없으면 배포 거부, 학습·배포 동시 실행 잠금.
+- **정확도·안정성 수정** — XGBoost·앙상블 SHAP, `best_iteration` 단위, 앙상블 중요도, PDF 실패 시 모델 보존, 결측 타깃 검사, 원자적 저장 등.
+- **CPU 스레드 설정** — `training.n_jobs`·`scoring.n_jobs`. **팟에서는 반드시 명시** (아래 "CPU 스레드 수").
+- 운영 스크립트에 영향을 주는 동작 변화와 업그레이드 순서는 **USER_GUIDE 부록 F**, 팟 CPU 설정은 **USER_GUIDE §20** 참고.
+
 ## 구성
 
 ```
@@ -853,18 +861,25 @@ python -m auto_ml.cli.set_best --config configs/example.yaml --list
 
 ### CPU 스레드 수 (`n_jobs`)
 
-LightGBM·XGBoost·CatBoost 는 기본으로 프로세스마다 서버의 모든 코어를 쓴다. 같은 서버에서 학습과
-스코어링(또는 학습 두 개) 이 동시에 돌면 스레드가 코어 수를 크게 넘어 서로 수십 배 느려질 수 있다.
-동시에 도는 작업들의 스레드 합이 코어 수를 넘지 않게 정한다. 예측 결과는 바뀌지 않는다.
+LightGBM·XGBoost·CatBoost 는 스레드 수를 지정하지 않으면 프로세스마다 **노드(서버) 의 모든 코어**만큼
+스레드를 만든다. 실제로 쓸 수 있는 CPU 보다 스레드가 많으면 서로 수십 배 느려진다
+(4코어 측정: 학습 2개 동시 각 약 450초 → `n_jobs: 2` 씩 7~8초, 단독 약 7초).
+
+**팟(컨테이너) 에서는 반드시 양의 정수로 명시한다.** 쿠버네티스 CPU limit 은 `nproc`·`os.cpu_count()`
+와 라이브러리에 반영되지 않으므로, `null`·`-1` 이면 limit 2 팟에서도 노드 코어 수(예: 32) 만큼 스레드가
+생긴다. 팟 CPU 는 `resources.limits.cpu` 또는 팟 안의 `/sys/fs/cgroup/cpu.max`(v1:
+`cpu.cfs_quota_us / cpu.cfs_period_us`) 로 확인하고, 같은 팟에서 동시에 도는 작업들의 합이 이를
+넘지 않게 정한다. 예측 결과는 바뀌지 않는다.
 
 ```yaml
 training:
-  n_jobs: null    # 학습·튜닝·변수 선택. null = 전체 코어, -1 = 전체, -2 = 하나 남김
+  n_jobs: 3       # 학습·튜닝·변수 선택. null·-1 = 노드 전체 코어 (팟 limit 아님)
 scoring:
-  n_jobs: null    # 추론·SHAP. null = 학습 때 값 그대로
+  n_jobs: 1       # 추론·SHAP. null = 학습 때 값 그대로
 ```
 
-모델 `fixed_params` 에 스레드 인자(`num_threads`·`nthread`·`thread_count` 등) 를 직접 쓰면 그 값이 우선한다.
+모델 `fixed_params` 에 스레드 인자(`num_threads`·`nthread`·`thread_count` 등) 를 직접 쓰면 그 값이
+우선한다. 값 정하는 규칙과 체크리스트는 USER_GUIDE §20 참고.
 
 ### 후보 모형의 상세 리포트
 

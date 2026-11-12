@@ -104,7 +104,7 @@ Deploy refuses a model whose **used** features (`selected_features`) are missing
 
 ### Threads (`auto_ml/utils/threads.py`)
 
-`training.n_jobs` / `scoring.n_jobs` (default null = library default = all cores; negatives follow sklearn). Wrappers declare `THREAD_PARAM_NAMES` and inject via `BaseModel._thread_params()` unless the user set one in `fixed_params`; `build_model(..., n_jobs=)` sets it at training. `BaseModel.set_n_jobs()` changes threads on a fitted model (LGBM/XGB `set_params`, CatBoost per-call `thread_count`, ensemble propagates); `Scorer/Explainer.from_artifact(path, n_jobs=)` apply `scoring.n_jobs`. Predictions are unchanged.
+`training.n_jobs` / `scoring.n_jobs` (default null = library default = all cores; negatives follow sklearn). null/-1 resolve to node cores (`sched_getaffinity`/`os.cpu_count`); a pod CPU limit (cgroup quota) is NOT reflected, so pods must set positive ints (USER_GUIDE §20). Wrappers declare `THREAD_PARAM_NAMES` and inject via `BaseModel._thread_params()` unless the user set one in `fixed_params`; `build_model(..., n_jobs=)` sets it at training. `BaseModel.set_n_jobs()` changes threads on a fitted model (LGBM/XGB `set_params`, CatBoost per-call `thread_count`, ensemble propagates); `Scorer/Explainer.from_artifact(path, n_jobs=)` apply `scoring.n_jobs`. Predictions are unchanged.
 
 ```bash
 python -m auto_ml.cli.set_best --config <yaml> --model xgb                 # from latest run (models/)
