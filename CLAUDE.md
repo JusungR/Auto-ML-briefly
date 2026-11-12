@@ -100,8 +100,6 @@ Each `.joblib` artifact bundles three objects: `(preprocessor, model, ArtifactMe
 
 Each training writes an immutable snapshot `artifact_dir/runs/<run_id>/` (`models/*.joblib`, `reports/`, `predictions/`, `run_info.json`) and replaces `artifact_dir/models/` wholesale with a copy of the latest run. Every production change goes through `versioning.deploy()` — load + test-score on `scoring.input_path` head(100), atomic `best.joblib` replace (`save_artifact` writes temp + `os.replace`), append to `deployments.jsonl` (`action`: train/promote/rollback/legacy, `previous` ref). `VersioningConfig`: `auto_deploy` (default true), `keep_last_runs` (default 5; current and previous production runs are never pruned). An old `artifact_dir` without `runs/` is migrated into `runs/legacy_*` on the next training.
 
-Deploy refuses a model whose **used** features (`selected_features`) are missing from `scoring.input_path` (`DeploymentError`) unless `allow_missing_features=True` / `--allow-missing-features`; a refused auto-deploy keeps the run and raises (non-zero exit).
-
 ```bash
 python -m auto_ml.cli.set_best --config <yaml> --model xgb                 # from latest run (models/)
 python -m auto_ml.cli.set_best --config <yaml> --run <run_id> --model lgbm # from an earlier run

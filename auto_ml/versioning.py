@@ -205,18 +205,10 @@ def _read_sample(path: Path, n: int):
     return pf.schema_arrow.names, (batch.to_pandas() if batch is not None else None)
 
 
-def check_compatibility(
-    bundle: dict[str, Any],
-    cfg: AutoMLConfig,
-    allow_missing_features: bool = False,
-) -> dict[str, Any]:
+def check_compatibility(bundle: dict[str, Any], cfg: AutoMLConfig) -> dict[str, Any]:
     """운영에 올리기 전 시험: 현재 스코어링 입력으로 실제 점수를 계산해 본다.
 
-    - **모델이 쓰는 변수**(selected_features) 가 입력에 없으면 :class:`DeploymentError`.
-      스코어링은 그 변수를 학습 기본값(평균·최빈값) 으로 모든 행에 채워 예측하므로,
-      예측 품질이 떨어져도 WARNING 로그로만 드러난다. ``allow_missing_features=True``
-      이면 WARNING 후 진행한다.
-    - 변수 선택에서 빠진 변수만 없으면 WARNING (예측에는 영향 없음).
+    - 입력에 없는 feature 는 WARNING (스코어링 시 학습 기본값으로 채워진다).
     - 시험 스코어링이 실패하거나 점수가 [0, 1] 밖이면 :class:`DeploymentError`.
     - 스코어링 입력 파일이 없으면 로드 확인만 하고 WARNING.
     """
@@ -235,20 +227,11 @@ def check_compatibility(
     columns, sample = _read_sample(input_path, SMOKE_ROWS)
     missing = [c for c in meta.feature_columns if c not in columns]
     result["missing_features"] = missing
-    used = set(getattr(meta, "selected_features", None) or meta.feature_columns)
-    missing_used = [c for c in missing if c in used]
-    if missing_used and not allow_missing_features:
-        raise DeploymentError(
-            f"Model '{meta.model_name}' uses {len(missing_used)} feature(s) missing from "
-            f"{input_path}: {missing_used}. Scoring would fill them with training defaults "
-            "for every row. Fix the scoring input, or pass --allow-missing-features to "
-            "deploy anyway."
-        )
     if missing:
         logger.warning(
-            "Compatibility check: %d feature(s) of model '%s' are missing from %s and "
-            "would be filled with training defaults: %s (used by the model: %s)",
-            len(missing), meta.model_name, input_path, missing, missing_used or "none",
+            "Compatibility check: %d feature(s) used by model '%s' are missing from %s "
+            "and would be filled with training defaults: %s",
+            len(missing), meta.model_name, input_path, missing,
         )
     if sample is None or sample.empty:
         return result
@@ -290,7 +273,6 @@ def deploy(
     source: str | Path,
     action: str,
     best_selection: str,
-    allow_missing_features: bool = False,
 ) -> Path:
     """``source`` 모델을 운영 모델(best.joblib) 로 올리고 배포 이력에 기록한다.
 
@@ -299,12 +281,10 @@ def deploy(
         source: 올릴 모델 파일 (보통 ``runs/<id>/models/<name>.joblib``).
         action: ``train`` / ``promote`` / ``rollback`` / ``legacy``.
         best_selection: 메타데이터 ``extra.best_selection`` 값.
-        allow_missing_features: True 면 모델이 쓰는 변수가 스코어링 입력에 없어도
-            WARNING 후 배포한다 (:func:`check_compatibility`).
 
     Raises:
-        DeploymentError: 모델을 열 수 없거나, 모델이 쓰는 변수가 입력에 없거나,
-            시험 스코어링이 실패한 경우. 이때 ``best.joblib`` 과 이력은 바뀌지 않는다.
+        DeploymentError: 모델을 열 수 없거나 시험 스코어링이 실패한 경우.
+            이때 ``best.joblib`` 과 이력은 바뀌지 않는다.
     """
     artifact_dir = Path(cfg.artifact_dir)
     source = Path(source)
@@ -315,7 +295,7 @@ def deploy(
             f"Cannot load {source}: {type(exc).__name__}: {exc}. "
             "It may have been saved by an incompatible code or library version."
         ) from exc
-    check_compatibility(bundle, cfg, allow_missing_features=allow_missing_features)
+    check_compatibility(bundle, cfg)
 
     meta = bundle["metadata"]
     previous = current_deployment(artifact_dir)

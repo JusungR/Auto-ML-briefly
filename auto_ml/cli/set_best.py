@@ -32,12 +32,7 @@ def _candidates(sub_dir: Path) -> list[str]:
     return sorted(p.stem for p in sub_dir.glob("*.joblib")) if sub_dir.exists() else []
 
 
-def promote(
-    config: AutoMLConfig,
-    model_name: str,
-    run_id: str | None = None,
-    allow_missing_features: bool = False,
-) -> Path:
+def promote(config: AutoMLConfig, model_name: str, run_id: str | None = None) -> Path:
     """후보 모델을 운영 모델(best.joblib) 로 올린다.
 
     Args:
@@ -45,7 +40,6 @@ def promote(
         model_name: 올릴 모형 이름 (후보 파일 stem).
         run_id: None 이면 최신 실행 후보(``artifact_dir/models/``), 지정하면
             ``artifact_dir/runs/<run_id>/models/`` 에서 찾는다.
-        allow_missing_features: 모델이 쓰는 변수가 스코어링 입력에 없어도 배포한다.
 
     Returns:
         운영 모델 경로 (best.joblib).
@@ -85,10 +79,7 @@ def promote(
         if rid and snap.exists():
             source = snap
 
-    best_path = versioning.deploy(
-        config, source, action="promote", best_selection="promoted",
-        allow_missing_features=allow_missing_features,
-    )
+    best_path = versioning.deploy(config, source, action="promote", best_selection="promoted")
     versioning.prune_runs(artifact_dir, config.versioning.keep_last_runs)
     return best_path
 
@@ -151,11 +142,6 @@ def cli_set_best() -> None:
         help="이전 실행 id (runs/<id>). 생략하면 최신 실행 후보(models/) 에서 찾는다.",
     )
     parser.add_argument("--list", action="store_true", help="실행 목록과 배포 이력만 출력")
-    parser.add_argument(
-        "--allow-missing-features", action="store_true",
-        help="모델이 쓰는 변수가 scoring.input_path 에 없어도 배포한다 "
-             "(그 변수는 학습 기본값으로 채워져 예측된다)",
-    )
     args = parser.parse_args()
     if not args.list and not args.model:
         parser.error("--model is required unless --list is given")
@@ -171,10 +157,7 @@ def cli_set_best() -> None:
         to_file=config.logging.to_file,
         stage="set_best",
     )
-    promote(
-        config, args.model, run_id=args.run,
-        allow_missing_features=args.allow_missing_features,
-    )
+    promote(config, args.model, run_id=args.run)
 
 
 if __name__ == "__main__":

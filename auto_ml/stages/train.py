@@ -343,20 +343,10 @@ def postprocess(
         "user_override" if cfg.training.best_model is not None else "auto_by_metric"
     )
     if cfg.versioning.auto_deploy:
-        try:
-            outputs["artifact"] = versioning.deploy(
-                cfg, run_models / f"{best_result.name}.joblib",
-                action="train", best_selection=best_selection,
-            )
-        except versioning.DeploymentError as exc:
-            # 실행·리포트는 이미 저장됐다. 운영 모델은 바뀌지 않았음을 알리고 실패로 끝내
-            # (cron 등이 성공으로 오인하지 않게) 배포 방법을 안내한다.
-            raise versioning.DeploymentError(
-                f"Run {run_id} was saved but NOT deployed — the production model is "
-                f"unchanged. Reason: {exc} To deploy after checking: python -m "
-                f"auto_ml.cli.set_best --config <yaml> --run {run_id} --model "
-                f"{best_result.name} [--allow-missing-features]"
-            ) from exc
+        outputs["artifact"] = versioning.deploy(
+            cfg, run_models / f"{best_result.name}.joblib",
+            action="train", best_selection=best_selection,
+        )
     else:
         logger.info(
             "versioning.auto_deploy is false — production model unchanged. Deploy with: "
