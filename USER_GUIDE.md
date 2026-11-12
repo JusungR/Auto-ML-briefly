@@ -1549,6 +1549,17 @@ scoring:
 `n_jobs` 는 예측 결과를 바꾸지 않고 속도만 바꿉니다. 모델 `fixed_params` 에 스레드 인자
 (`num_threads`, `nthread`, `thread_count` 등) 를 직접 쓰면 그 값이 우선합니다.
 
+측정 예 (4코어, `examples/sample` 학습):
+
+| 상황 | 기본 (`n_jobs: null`) | 스레드 나눔 |
+|---|---|---|
+| 학습 1개 단독 | 약 7초 | — |
+| 학습 2개 동시 | 각 약 450초 | 각 약 7~8초 (`training.n_jobs: 2`) |
+| 학습 중 스코어링 반복 | 학습 약 440초 | 학습 약 7.5초 (`training.n_jobs: 3`, `scoring.n_jobs: 1`) |
+
+환경 변수 `OMP_WAIT_POLICY=passive` 도 동시 실행 시 느려짐을 크게 줄이지만, 혼자 돌 때 학습이
+2배 이상 느려지므로 기본으로 권하지 않습니다.
+
 ---
 
 ## D. 폐쇄망 이관
