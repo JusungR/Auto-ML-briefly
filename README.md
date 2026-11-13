@@ -30,7 +30,7 @@ auto_ml/
 ├── cli/                   best 교체 (python -m auto_ml.cli.set_best)
 └── utils/                 io / logger / validation / categorical
 examples/                  실행 샘플(sample/), 데이터 준비 예시(credit/, titanic/), 더미 데이터 생성
-configs/                   예시 설정 (example.yaml, features.csv)
+configs/                   설정 (template.yaml = 전체 키 표준 템플릿, example.yaml = 실행 예시, features.csv)
 ```
 
 ## 5단계 파이프라인

@@ -292,3 +292,27 @@ def test_end_to_end_with_levels_and_onehot(tmp_path, tiny_binary_data):
         shap_df[shap_cols].sum(axis=1) + shap_df["base_value"], shap_df["score"], atol=1e-6,
     )
     np.testing.assert_allclose(shap_df["score"].to_numpy(), scores, atol=1e-6)
+
+
+def test_elasticnet_unknown_categories_logged_once_without_sklearn_warning(caplog):
+    """튜닝·CV 폴드의 희귀 범주로 sklearn 경고가 반복되지 않고, 변수 이름으로 한 번만 남는다."""
+    import warnings
+
+    from auto_ml.models import base
+    from auto_ml.models.elasticnet_model import ElasticNetModel
+
+    base._LOGGED_ONCE.clear()
+    caplog.set_level(logging.INFO)
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"n": rng.normal(size=60), "지역": ["서울"] * 30 + ["부산"] * 30})
+    y = pd.Series(rng.integers(0, 2, 60))
+    new = pd.DataFrame({"n": [0.0, 1.0], "지역": ["제주", "서울"]})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        for _ in range(3):
+            m = ElasticNetModel(categorical_columns=["지역"]).fit(X, y)
+            proba = m.predict_proba(new)
+    assert not [w for w in caught if "unknown categories" in str(w.message)]
+    msgs = [r.getMessage() for r in caplog.records if "not seen when the model was fit" in r.getMessage()]
+    assert len(msgs) == 1 and "'지역': 1" in msgs[0]
+    assert np.all((proba >= 0) & (proba <= 1))

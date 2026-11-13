@@ -20,6 +20,7 @@ from auto_ml.config import load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_CONFIGS = [
+    "configs/template.yaml",
     "configs/example.yaml",
     "examples/credit/config.yaml",
     "examples/sample/config.yaml",
@@ -62,3 +63,30 @@ def test_make_dummy_data_splits_share_distribution(tmp_path, monkeypatch):
     clf = LogisticRegression(max_iter=1000).fit(tr[num], tr["target"])
     auc = roc_auc_score(te["target"], clf.predict_proba(te[num])[:, 1])
     assert auc > 0.85, auc
+
+
+def test_template_lists_every_config_key_with_code_defaults(monkeypatch):
+    """configs/template.yaml 은 설정 가능한 모든 키를 코드 기본값으로 담는다 (설정 추가 시 함께 갱신).
+
+    모델 섹션은 fixed_params / search_space 예시와 elasticnet enabled 를 의도적으로 다르게 둔다.
+    """
+    import dataclasses as dc
+
+    import yaml
+
+    from auto_ml.config import AutoMLConfig
+
+    monkeypatch.chdir(ROOT)
+    raw = yaml.safe_load((ROOT / "configs/template.yaml").read_text(encoding="utf-8"))
+    loaded = load_config("configs/template.yaml")
+    default = AutoMLConfig()
+    names = lambda obj: [f.name for f in dc.fields(obj)]  # noqa: E731
+
+    assert [k for k in names(default) if k not in raw and k != "features"] == []
+    for section in ("preprocessing", "feature_selection", "training", "tuning", "ensemble",
+                    "reporting", "scoring", "explain", "logging", "versioning"):
+        want = getattr(default, section)
+        assert [k for k in names(want) if k not in raw[section]] == [], section
+        assert getattr(loaded, section) == want, section
+    for model in ("lgbm", "xgb", "catboost"):
+        assert [k for k in names(default.models[model]) if k not in raw["models"][model]] == []

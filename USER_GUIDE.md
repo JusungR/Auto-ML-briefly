@@ -348,6 +348,11 @@ artifacts/
 설정 YAML 은 다음 최상위 키들로 구성됩니다. **모든 키는 선택**이며, 누락 시 기본값이
 적용됩니다(코드의 `auto_ml/config.py` dataclass 와 1:1 대응).
 
+> **표준 템플릿:** 새 프로젝트는 `configs/template.yaml` 을 복사해 시작하세요. 설정할 수 있는 **모든 키**가
+> 코드 기본값과 함께 들어 있고, 키마다 허용 값과 `[필수]`·`[선택]`·`[운영]` 표시가 달려 있습니다.
+> `cp configs/template.yaml configs/my_project.yaml` 후 `[필수]` 항목(데이터 경로·타깃·features CSV·산출물
+> 위치) 만 바꾸면 바로 실행할 수 있습니다. `configs/example.yaml` 은 더미 데이터용 실행 예시입니다.
+
 ```yaml
 # ----- top-level (데이터 입력) -----
 train_data_path: ./data/train.parquet     # §7

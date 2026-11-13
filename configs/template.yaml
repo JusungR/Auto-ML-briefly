@@ -1,0 +1,246 @@
+# =============================================================================
+# Auto-ML 표준 설정 템플릿 — 설정할 수 있는 모든 키와 기본값
+# =============================================================================
+# 사용법
+#   1) 이 파일을 복사한다:  cp configs/template.yaml configs/my_project.yaml
+#   2) [필수] 표시 항목(데이터 경로·타깃·features CSV·산출물 위치) 을 바꾼다.
+#   3) 나머지는 기본값 그대로 두어도 된다. 값을 지우면(키를 빼면) 코드 기본값이 쓰인다.
+#   4) 실행:  python train/run_all.py --config configs/my_project.yaml
+#             python inference/run_all.py --config configs/my_project.yaml
+#
+# 표기:  [필수] 프로젝트마다 반드시 바꿀 값 / [선택] 필요할 때만 / [운영] 서버 환경에 맞춰
+# 모든 키는 auto_ml/config.py 의 dataclass 와 1:1 로 대응한다 (오타는 실행 시 에러).
+# 상대 경로는 명령을 실행하는 위치(저장소 루트) 기준이다.
+# =============================================================================
+
+
+# ==== 1. 데이터 ==============================================================
+train_data_path: ./data/train.parquet        # [필수] 학습 데이터 (Parquet)
+test_data_path: ./data/test.parquet          # [필수] 평가(holdout) 데이터 (Parquet)
+target_column: target                        # [필수] 타깃 컬럼 (0/1, 결측 불가)
+
+# [필수] 사용할 변수 정의 CSV.  컬럼: name, type(continuous | category), used(true | false)
+#   used == true 인 행만 학습에 쓴다. 변수를 빼려면 used 를 false 로.
+features_csv: ./configs/features.csv
+
+# [선택] 결과 파일에 함께 남길 식별자 컬럼 (학습에는 쓰지 않음). 예: [customer_id]
+id_columns: []
+
+
+# ==== 2. 산출물 위치 =========================================================
+# [필수] 모델 폴더.  best.joblib(운영 모델), models/(최신 후보), runs/(실행 이력),
+#   deployments.jsonl(배포 이력) 이 이 아래에 생긴다. 프로젝트마다 다른 폴더를 쓴다.
+artifact_dir: ./artifacts/models
+
+
+# ==== 3. 전처리 ==============================================================
+# 순서: 결측 처리 → 범주값 정리(선택) → 이상치 → skew 변환 → 스케일링
+# 학습 데이터로 정한 값(중앙값·경계·남길 범주 등) 을 저장해 추론에도 그대로 쓴다.
+preprocessing:
+  # 3-1) 결측
+  numeric_null_strategy: median              # median | mean | constant
+  numeric_null_fill_value: 0.0               # constant 일 때 채울 값
+  categorical_null_strategy: most_frequent   # most_frequent | constant
+  categorical_null_fill_value: MISSING       # constant 일 때 채울 값
+
+  # 3-2) 범주값 정리 [선택] — 변수마다 keep(남길 값) 또는 min_count(최소 건수) 중 하나.
+  #   남기지 않은 값과 추론 때 처음 보는 값은 categorical_other_label 로 묶인다.
+  #   코드 값은 따옴표로 적는다: ["01", "02"]  (따옴표 없는 [01] 은 숫자 1 로 읽힘)
+  #   min_count 는 결측을 채운 뒤의 건수로 센다.
+  categorical_levels: {}
+  #   예)
+  #   categorical_levels:
+  #     region:  { keep: ["서울", "부산"] }
+  #     channel: { min_count: 50 }
+  categorical_other_label: __other__         # 묶인 값의 이름 (데이터에 없는 값이어야 함)
+
+  # 3-3) 이상치 (수치형, 백분위수 윈저라이징)
+  outlier_method: percentile                 # percentile | none
+  outlier_lower_quantile: 0.01
+  outlier_upper_quantile: 0.99
+  outlier_action: clip                       # clip | null_then_impute
+
+  # 3-4) skew 변환 (수치형, |skew| > skew_threshold 인 컬럼만)
+  skew_method: signed_log1p                  # signed_log1p | quantile_normal | none
+  skew_threshold: 1.0
+
+  # 3-5) 스케일링 (수치형. 트리 모델만 쓰면 none 이어도 무방)
+  scaling_method: standard                   # standard | minmax | robust | none
+
+
+# ==== 4. 변수 선택 (Stability Selection) [선택] ==============================
+feature_selection:
+  enabled: false                             # true 면 선택된 변수만 모델에 넣는다
+  base_estimator: lasso                      # lasso (L1 logistic) | lgbm (gain 상위 K)
+  n_subsamples: 200                          # 부분표본 반복 횟수 (보통 100~500)
+  subsample_ratio: 0.5                       # 부분표본 크기 비율
+  threshold: 0.6                             # 선택 빈도 임계값 (보통 0.6~0.8)
+  random_state: 42
+  min_selected: 1                            # 임계값을 넘는 변수가 부족할 때 최소 개수
+  lasso_C: 0.1                               # lasso 전용 — 낮을수록 규제 강함
+  lgbm_top_k: 30                             # lgbm 전용 — 부분표본당 상위 K 개
+  lgbm_n_estimators: 100                     # lgbm 전용
+  lgbm_learning_rate: 0.1                    # lgbm 전용
+
+
+# ==== 5. 학습 ================================================================
+training:
+  cv_folds: 5                                # 교차검증 폴드 수
+  random_state: 42
+  early_stopping_rounds: 50
+  primary_metric: roc_auc                    # roc_auc | pr_auc | f1 | accuracy | precision | recall | ks
+  best_model: null                           # [선택] best 를 직접 지정 (lgbm | xgb | catboost | elasticnet | ensemble).
+                                             #   null = primary_metric 으로 자동 선정
+  # 최종 모델 학습 방식
+  #   early_stop_on_test (기본) — test 로 조기 종료 (test 정보가 트리 수에 반영됨)
+  #   iteration_capping        — CV 폴드 best_iteration 을 집계해 트리 수 고정 후 전체 학습
+  #   cv_bagging               — CV 폴드 모델들의 평균
+  final_fit_strategy: early_stop_on_test
+  iteration_cap_aggregation: mean            # iteration_capping 전용: mean | median
+  iteration_cap_headroom: 1.0                # iteration_capping 전용: 트리 수 = ceil(집계값 × headroom)
+  n_jobs: null                               # [운영] 학습 CPU 스레드 수. null = 노드 전체 코어.
+                                             #   팟·컨테이너에서는 CPU limit 이하 양의 정수로 (예: 4)
+
+
+# ==== 6. 하이퍼파라미터 튜닝 (Optuna) ========================================
+tuning:
+  enabled: true                              # false 면 fixed_params 만으로 학습
+  n_trials: 30                               # 모델당 시도 횟수
+  timeout: null                              # 모델당 최대 시간(초). null = 제한 없음
+  cv_folds: 3                                # 튜닝용 폴드 수 (속도를 위해 학습보다 작게)
+  random_state: 42
+
+
+# ==== 7. 모델 ================================================================
+# 모델마다 공통 키:
+#   enabled              학습 여부
+#   loss                 logloss (기본) | focal (불균형 데이터용, lgbm·xgb·catboost)
+#                        focal 이면 fixed_params 에 focal_gamma(기본 2.0)·focal_alpha(기본 0.25)
+#   categorical_encoding native (기본, 라이브러리 방식) | onehot (범주 하나씩 "그 값이냐 아니냐" 로 분할)
+#                        ElasticNet 은 항상 원-핫이라 무시. 범주값 정리(3-2) 와 함께 쓰면 효과적
+#   fixed_params         항상 쓰는 라이브러리 파라미터
+#   search_space         튜닝 범위. 형식: 이름: {type: float|int|categorical, low, high, log, step, choices}
+#                        비우면 그 모델은 튜닝하지 않는다
+models:
+  lgbm:
+    enabled: true
+    loss: logloss
+    categorical_encoding: native
+    fixed_params:
+      objective: binary
+      metric: auc
+      verbose: -1
+      n_estimators: 2000
+    search_space:
+      learning_rate:     { type: float, low: 0.01,   high: 0.3,  log: true }
+      num_leaves:        { type: int,   low: 15,     high: 255 }
+      max_depth:         { type: int,   low: 3,      high: 12 }
+      feature_fraction:  { type: float, low: 0.6,    high: 1.0 }
+      bagging_fraction:  { type: float, low: 0.6,    high: 1.0 }
+      min_data_in_leaf:  { type: int,   low: 10,     high: 200 }
+      reg_alpha:         { type: float, low: 1.0e-8, high: 10.0, log: true }   # L1
+      reg_lambda:        { type: float, low: 1.0e-8, high: 10.0, log: true }   # L2
+      min_gain_to_split: { type: float, low: 0.0,    high: 0.5 }
+
+  xgb:
+    enabled: true
+    loss: logloss
+    categorical_encoding: native
+    fixed_params:
+      objective: binary:logistic
+      eval_metric: auc
+      tree_method: hist
+      n_estimators: 2000
+    search_space:
+      learning_rate:     { type: float, low: 0.01,   high: 0.3,  log: true }
+      max_depth:         { type: int,   low: 3,      high: 10 }
+      subsample:         { type: float, low: 0.6,    high: 1.0 }
+      colsample_bytree:  { type: float, low: 0.6,    high: 1.0 }
+      min_child_weight:  { type: float, low: 1.0,    high: 20.0 }
+      reg_alpha:         { type: float, low: 1.0e-8, high: 10.0, log: true }   # L1
+      reg_lambda:        { type: float, low: 1.0e-8, high: 10.0, log: true }   # L2
+      gamma:             { type: float, low: 0.0,    high: 5.0 }
+
+  catboost:
+    enabled: true
+    loss: logloss
+    categorical_encoding: native
+    fixed_params:
+      loss_function: Logloss
+      eval_metric: AUC
+      iterations: 2000
+      verbose: false
+      allow_writing_files: false
+    search_space:
+      learning_rate:       { type: float, low: 0.01, high: 0.3,   log: true }
+      depth:               { type: int,   low: 4,    high: 10 }
+      l2_leaf_reg:         { type: float, low: 1.0,  high: 100.0, log: true }
+      random_strength:     { type: float, low: 0.0,  high: 10.0 }
+      bagging_temperature: { type: float, low: 0.0,  high: 1.0 }
+
+  # 코드 기본값은 false. 앙상블 기본 전략(elasticnet_plus_best) 이 ElasticNet 을 쓰므로 켜 둔다.
+  elasticnet:
+    enabled: true
+    loss: logloss                            # ElasticNet 은 focal 미지원
+    fixed_params:
+      max_iter: 2000                         # 수렴 경고가 나면 늘린다
+    search_space:
+      C:        { type: float, low: 1.0e-3, high: 10.0, log: true }   # 낮을수록 규제 강함
+      l1_ratio: { type: float, low: 0.0,    high: 1.0 }               # 0 = L2, 1 = L1
+
+
+# ==== 8. 앙상블 ==============================================================
+ensemble:
+  enabled: true
+  strategy: elasticnet_plus_best             # elasticnet_plus_best | weighted_average
+  elasticnet_weight: null                    # elasticnet_plus_best 전용. null = 점수 비례 자동, 0~1 로 직접 지정
+
+
+# ==== 9. 실행 이력 · 배포 · 롤백 ============================================
+# 학습마다 artifact_dir/runs/<실행 ID>/ 에 실행 전체가 남는다.
+#   운영 모델 바꾸기:  python -m auto_ml.cli.set_best --config <yaml> --model <이름> [--run <실행 ID>]
+#   이력 보기:         python -m auto_ml.cli.set_best --config <yaml> --list
+#   되돌리기:          python -m auto_ml.cli.rollback --config <yaml>
+# 같은 artifact_dir 로 학습·set_best·rollback 을 동시에 실행하지 않는다 (잠금 없음).
+versioning:
+  auto_deploy: true                          # false 면 학습 후 자동 배포하지 않음 (set_best 로 배포)
+  keep_last_runs: 5                          # 보관할 최근 실행 수 (현재·직전 운영 실행은 항상 보관)
+
+
+# ==== 10. 리포트 (HTML · PDF) ================================================
+reporting:
+  output_dir: ./artifacts/reports            # [필수] 리포트·CSV 저장 폴더
+  generate_html: true
+  generate_pdf: true                         # WeasyPrint 시스템 의존성 필요 (없으면 PDF 만 건너뜀)
+  title: Auto-ML Binary Classification Report
+  top_importance_features: 30                # 리포트에 보일 변수 중요도 상위 N 개 (null = 전체, CSV 는 항상 전체)
+  top_selection_features: null               # 리포트에 보일 변수 선택 결과 상위 N 개 (null = 전체)
+  font_path: null                            # [운영] 한글 폰트 파일(.ttf/.otf). null = 설치된 한글 폰트 자동 사용.
+                                             #   서버에 한글 폰트가 없으면 PDF·차트 한글이 깨지므로 지정
+
+
+# ==== 11. 스코어링 (추론) ====================================================
+scoring:
+  input_path: ./data/score_input.parquet     # [필수] 추론 입력 (Parquet). 배포 전 시험 스코어링에도 쓰임
+  output_path: ./artifacts/scores/scores.parquet   # [필수] 추론 결과
+  id_columns: []                             # [선택] 결과에 남길 식별자. 비우면 위 id_columns 사용
+  threshold: 0.5                             # score → prediction(0/1) 임계값
+  n_jobs: null                               # [운영] 추론·SHAP 스레드 수. null = 학습 때 값 그대로
+
+
+# ==== 12. SHAP 해석 [선택] ===================================================
+# 실행: python -m auto_ml.explain.runner --config <yaml>
+# 출력: <id_columns> + shap_<변수>... + base_value + score  (확률 기준, base_value + 합계 = score)
+explain:
+  input_path: ./data/score_input.parquet
+  output_path: ./artifacts/explanations/shap.parquet
+  id_columns: []                             # 비우면 위 id_columns 사용
+
+
+# ==== 13. 로그 ===============================================================
+# 실행마다 <단계>_<YYYYMMDD>_<HHMMSS>.log 파일이 log_dir 에 생긴다.
+logging:
+  log_dir: ./artifacts/logs
+  level: INFO                                # DEBUG | INFO | WARNING | ERROR
+  to_stdout: true
+  to_file: true

@@ -24,7 +24,7 @@ from sklearn.preprocessing import OneHotEncoder
 # sklearn 1.8 에서 penalty 파라미터가 deprecated → 버전에 따라 분기
 _SKLEARN_GE_18 = tuple(int(x) for x in sklearn.__version__.split(".")[:2]) >= (1, 8)
 
-from auto_ml.models.base import BaseModel
+from auto_ml.models.base import BaseModel, _log_once
 
 
 class ElasticNetModel(BaseModel):
@@ -89,12 +89,42 @@ class ElasticNetModel(BaseModel):
         """저장된 OHE 로 변환한다."""
         X = X[self.feature_columns]
         if self._ohe is not None and self._cat_cols:
-            ohe_data = self._ohe.transform(X[self._cat_cols].astype(str))
+            X_cat = X[self._cat_cols].astype(str)
+            self._note_unknown_categories(X_cat)
+            # 처음 보는 범주는 모든 원-핫 칸 0 (handle_unknown="ignore", 의도된 동작).
+            # sklearn 은 호출마다 열 번호로만 경고해 튜닝 trial × fold 만큼 반복되므로 숨기고,
+            # 변수 이름으로 한 번만 남긴다 (_note_unknown_categories).
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore", message="Found unknown categories", category=UserWarning,
+                )
+                ohe_data = self._ohe.transform(X_cat)
             ohe_names = list(self._ohe.get_feature_names_out(self._cat_cols))
             X_ohe = pd.DataFrame(ohe_data, columns=ohe_names, index=X.index)
             X_num = X[self._numeric_cols].astype(float)
             return pd.concat([X_num, X_ohe], axis=1)
         return X[self._numeric_cols].astype(float).copy()
+
+    def _note_unknown_categories(self, X_cat: pd.DataFrame) -> None:
+        """이 모델 학습 때 없던 범주값의 건수를 변수 이름으로 한 번만 로그에 남긴다.
+
+        튜닝·CV 폴드에서는 희귀 범주가 학습 폴드에 없어서 생기는 것이 정상이다. test·추론
+        데이터의 미학습 범주는 전처리 단계 로그(``[test]`` / ``[score_input]``) 에도 따로 남는다.
+        """
+        counts: dict[str, int] = {}
+        for col, cats in zip(self._cat_cols, self._ohe.categories_):
+            n = int((~X_cat[col].isin(cats)).sum())
+            if n:
+                counts[col] = n
+        if counts:
+            _log_once(
+                ("ElasticNetModel", "unknown_categories"), "info",
+                "ElasticNet: categories not seen when the model was fit are one-hot encoded as "
+                "all zeros (normal for rare values in tuning/CV folds; logged once). First "
+                "occurrence, rows per column: %s. Group rare values with "
+                "preprocessing.categorical_levels (e.g. min_count) to reduce this.",
+                counts,
+            )
 
     # ------------------------------------------------------------------
     def fit(
