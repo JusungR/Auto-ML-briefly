@@ -4,169 +4,7 @@
 <meta charset="utf-8" />
 <title>{{ title }}</title>
 <style>
-  @page { size: A4; margin: 15mm 18mm; }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
-    font-size: 12px;
-    color: #1e2329;
-    line-height: 1.6;
-    background: #fff;
-  }
-
-  .report-header {
-    background: linear-gradient(135deg, #4b5563 0%, #1f2937 100%);
-    color: #fff;
-    padding: 20px 24px 16px;
-    border-radius: 8px;
-    margin-bottom: 24px;
-  }
-  .report-header h1 {
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
-    margin-bottom: 10px;
-  }
-  .header-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .pill {
-    background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 20px;
-    padding: 3px 12px;
-    font-size: 11px;
-    color: #fff;
-    white-space: nowrap;
-  }
-  .pill strong { font-weight: 700; }
-  .pill.gap-pos { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
-  .pill.gap-neg { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
-  .back-link {
-    display: inline-block;
-    margin-bottom: 12px;
-    font-size: 11px;
-    color: #4b5563;
-    text-decoration: none;
-  }
-  .back-link:hover { text-decoration: underline; }
-
-  h2 {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1f2937;
-    margin: 28px 0 12px;
-    padding-bottom: 6px;
-    border-bottom: 2px solid #e5e7eb;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  h2 .sec-num {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px; height: 22px;
-    background: #4b5563;
-    color: #fff;
-    border-radius: 50%;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  h3 {
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-    margin: 14px 0 6px;
-  }
-
-  .card {
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    overflow: hidden;
-    margin-bottom: 16px;
-  }
-  .card-body { padding: 12px 14px; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-  }
-  thead tr { background: #4b5563; color: #fff; }
-  thead th {
-    padding: 7px 10px;
-    text-align: right;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    white-space: nowrap;
-  }
-  thead th.left { text-align: left; }
-  tbody tr { border-bottom: 1px solid #f0f0f0; }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:nth-child(even) { background: #f9fafb; }
-  tbody td {
-    padding: 6px 10px;
-    text-align: right;
-    color: #374151;
-  }
-  tbody td.left { text-align: left; }
-
-  td.delta-pos { color: #065f46; }
-  td.delta-neg { color: #991b1b; }
-
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 10px;
-    font-weight: 600;
-    vertical-align: middle;
-  }
-  .badge-green  { background: #d1fae5; color: #065f46; }
-  .badge-gray   { background: #f3f4f6; color: #6b7280; }
-  .badge-red    { background: #fee2e2; color: #991b1b; }
-  .badge-blue   { background: #dbeafe; color: #1e40af; }
-
-  .bar-wrap { display: flex; align-items: center; gap: 6px; }
-  .bar-bg {
-    flex: 1;
-    height: 8px;
-    background: #e5e7eb;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .bar-fill { height: 100%; border-radius: 4px; background: #4b5563; }
-  .bar-fill.below { background: #d1d5db; }
-  .bar-val { min-width: 36px; text-align: right; font-size: 10px; color: #6b7280; }
-
-  .grid-2 { display: flex; gap: 12px; margin: 8px 0 16px; }
-  .grid-2 .chart-box { flex: 1 1 0; min-width: 0; }
-  .chart-box { margin: 8px 0 16px; }
-  .chart-box img { width: 100%; display: block; border-radius: 6px; border: 1px solid #e5e7eb; }
-
-  .cm-table { width: auto; }
-  .cm-table th, .cm-table td { min-width: 70px; text-align: center; }
-  .cm-table .cm-tn { background: #d1fae5; color: #065f46; font-weight: 700; }
-  .cm-table .cm-tp { background: #d1fae5; color: #065f46; font-weight: 700; }
-  .cm-table .cm-fp { background: #fee2e2; color: #991b1b; }
-  .cm-table .cm-fn { background: #fee2e2; color: #991b1b; }
-
-  .config-key { color: #6b7280; font-family: monospace; font-size: 10.5px; }
-  .config-val { font-family: monospace; font-size: 10.5px; color: #1e2329; }
-
-  .footer {
-    margin-top: 28px;
-    padding-top: 10px;
-    border-top: 1px solid #e5e7eb;
-    font-size: 10px;
-    color: #9ca3af;
-    text-align: center;
-  }
+{% include "_style.css" %}
 </style>
 </head>
 <body>
@@ -327,12 +165,12 @@
     </thead>
     <tbody>
       <tr>
-        <th style="text-align:left; padding:6px 10px; background:#f9fafb;">True 0</th>
+        <th style="text-align:left; padding:6px 10px; background:#fafafa;">True 0</th>
         <td class="cm-tn">{{ confusion[0][0] }}</td>
         <td class="cm-fp">{{ confusion[0][1] }}</td>
       </tr>
       <tr>
-        <th style="text-align:left; padding:6px 10px; background:#f9fafb;">True 1</th>
+        <th style="text-align:left; padding:6px 10px; background:#fafafa;">True 1</th>
         <td class="cm-fn">{{ confusion[1][0] }}</td>
         <td class="cm-tp">{{ confusion[1][1] }}</td>
       </tr>
@@ -344,24 +182,24 @@
 {% if selection %}
 <h2><span class="sec-num">4</span> 변수 선택 (Stability Selection)</h2>
 <div class="header-pills" style="margin-bottom:12px;">
-  <span class="pill" style="background:#f3f4f6; color:#374151; border-color:#d1d5db;">
+  <span class="pill pill-muted">
     base: <strong>{{ selection.base_estimator }}</strong>
   </span>
-  <span class="pill" style="background:#f3f4f6; color:#374151; border-color:#d1d5db;">
+  <span class="pill pill-muted">
     부분표본 <strong>{{ selection.n_subsamples }}</strong>회
   </span>
-  <span class="pill" style="background:#f3f4f6; color:#374151; border-color:#d1d5db;">
+  <span class="pill pill-muted">
     임계값 <strong>{{ '%.2f'|format(selection.threshold) }}</strong>
   </span>
-  <span class="pill" style="background:#d1fae5; color:#065f46; border-color:#6ee7b7;">
+  <span class="pill pill-ok">
     채택 <strong>{{ selection.n_selected }} / {{ selection.n_total }}</strong>
   </span>
   {% if selection.fallback_used %}
-  <span class="pill" style="background:#fee2e2; color:#991b1b; border-color:#fca5a5;">
+  <span class="pill pill-bad">
     ⚠ min_selected fallback 발동
   </span>
   {% endif %}
-  <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">
+  <span class="pill pill-muted">
     표 노출 {{ selection.top_n }} / 전체 {{ selection.n_total }}
     (전체 분포는 메인 리포트의 feature_selection.csv)
   </span>

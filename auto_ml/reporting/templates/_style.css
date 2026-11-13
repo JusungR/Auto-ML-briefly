@@ -1,0 +1,214 @@
+  /* 리포트 공통 스타일 (메인 report.html.j2 · 후보 sub_report.html.j2 가 함께 include).
+     디자인 기준: Mintlify 계열 문서형 — 무채색, 얇은 선(hairline), 그림자 없음,
+     본문 줄간격 1.5 이상, 민트(#00b48a) 는 Best 강조 등 꼭 필요한 곳에만.
+     PDF(WeasyPrint) 에서도 같게 보이도록 box-shadow·JS 는 쓰지 않는다. */
+
+  /* ── 색상 기준 ──
+     ink #0a0a0a · charcoal #1c1c1e · slate #3a3a3c · steel #5a5a5c · stone #888888
+     hairline #e5e5e5 · hairline-soft #ededed · surface #f7f7f7 · surface-soft #fafafa
+     accent #00b48a (deep) / #e6f8f2 (tint) · warn #c37d0d · error #d45656 · info #3772cf */
+
+  @page { size: A4; margin: 15mm 18mm; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Inter, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR",
+                 -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 12px;
+    color: #1c1c1e;
+    line-height: 1.55;
+    background: #fff;
+  }
+
+  /* ── 헤더 ── */
+  .report-header {
+    background: #fafafa;
+    color: #0a0a0a;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 22px 24px 18px;
+    margin-bottom: 24px;
+  }
+  .report-header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 10px;
+  }
+  .header-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .pill {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 9999px;
+    padding: 3px 12px;
+    font-size: 11px;
+    color: #3a3a3c;
+    white-space: nowrap;
+  }
+  .pill strong { font-weight: 700; }
+  .pill.highlight { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
+  .pill.gap-pos { background: #fdf6e9; border-color: #f1d9a8; color: #8a5a07; }   /* 오버핏 신호 */
+  .pill.gap-neg { background: #e6f8f2; border-color: #a6e8d5; color: #00805f; }
+
+  .back-link {
+    display: inline-block;
+    margin-bottom: 12px;
+    font-size: 11px;
+    color: #5a5a5c;
+    text-decoration: none;
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  /* ── 섹션 제목 ── */
+  h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #0a0a0a;
+    margin: 28px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #ededed;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .sec-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    background: #f7f7f7;
+    color: #00b48a;
+    border: 1px solid #e5e5e5;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #5a5a5c;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 14px 0 6px;
+  }
+
+  /* ── 카드 ── */
+  .card {
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .card-body { padding: 12px 14px; }
+
+  /* ── 표 ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;   /* 숫자 자릿수 정렬 */
+  }
+  thead tr { background: #fafafa; color: #5a5a5c; }
+  thead th {
+    padding: 7px 12px;
+    text-align: right;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  thead th.left { text-align: left; }
+  tbody tr { border-bottom: 1px solid #ededed; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: #fafafa; }
+  tbody td {
+    padding: 8px 12px;
+    text-align: right;
+    color: #1c1c1e;
+  }
+  tbody td.left { text-align: left; }
+
+  /* best 모델 행 — 연민트 바탕 + 왼쪽 민트 막대 */
+  .best td { background: #effcf8 !important; font-weight: 700; color: #0a0a0a; }
+  .best td:first-child { border-left: 3px solid #00b48a; }
+
+  /* 그룹 헤더 (지표별 Train / Test / Δ) */
+  thead tr.group-row, thead tr.sub-row { background: #fafafa; color: #5a5a5c; }
+  thead tr.sub-row th { font-size: 10px; padding: 4px 8px; }
+  thead tr.group-row th { border-left: 1px solid #ededed; }
+  thead tr.group-row th:first-child { border-left: none; }
+  thead tr.group-row th.left { text-align: left; }
+
+  /* 오버핏 gap 셀 (Δ = train - test): 양수 gap 이 클수록 메모리제이션 신호 */
+  td.gap-high { color: #d45656; font-weight: 700; }   /* |Δ| ≥ 0.10 */
+  td.gap-mid  { color: #c37d0d; font-weight: 600; }   /* 0.05 ≤ |Δ| < 0.10 */
+  td.gap-low  { color: #888888; }                      /* |Δ| < 0.05 */
+  td.delta-pos { color: #00805f; }
+  td.delta-neg { color: #d45656; }
+
+  /* ── 뱃지 ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  .badge-green { background: #e6f8f2; color: #00805f; }
+  .badge-gray  { background: #f7f7f7; color: #5a5a5c; }
+  .badge-red   { background: #fbeeee; color: #b03a3a; }
+  .badge-blue  { background: #e6fbf5; color: #00805f; }   /* BEST 등 강조 뱃지 */
+
+  /* ── 진행바 (선택 빈도) ── */
+  .bar-wrap { display: flex; align-items: center; gap: 6px; }
+  .bar-bg { flex: 1; height: 8px; background: #ededed; border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; background: #00b48a; }
+  .bar-fill.below { background: #d4d4d4; }
+  .bar-val { min-width: 36px; text-align: right; font-size: 10px; color: #5a5a5c; }
+
+  /* ── 차트 ── */
+  .grid-2 { display: flex; gap: 12px; margin: 8px 0 16px; }
+  .grid-2 .chart-box { flex: 1 1 0; min-width: 0; }
+  .chart-box { margin: 8px 0 16px; }
+  .chart-box img { width: 100%; display: block; border-radius: 12px; border: 1px solid #e5e5e5; }
+
+  /* ── confusion matrix ── */
+  .cm-table { width: auto; }
+  .cm-table th, .cm-table td { min-width: 70px; text-align: center; }
+  .cm-table .cm-tn, .cm-table .cm-tp { background: #e6f8f2; color: #00805f; font-weight: 700; }
+  .cm-table .cm-fp, .cm-table .cm-fn { background: #fbeeee; color: #b03a3a; }
+
+  /* ── 설정 표 ── */
+  .config-key { color: #5a5a5c; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; }
+  .config-val { color: #1c1c1e; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; }
+
+  /* ── 푸터 ── */
+  .footer {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #ededed;
+    font-size: 10px;
+    color: #888888;
+    text-align: center;
+  }
+
+  /* ── 상태 pill (본문용) ── */
+  .pill.pill-ok    { background: #e6f8f2; border-color: #a6e8d5; color: #00805f; }
+  .pill.pill-info  { background: #f7f7f7; border-color: #e5e5e5; color: #1c1c1e; }
+  .pill.pill-bad   { background: #fbeeee; border-color: #f0c4c4; color: #b03a3a; }
+  .pill.pill-muted { background: #f7f7f7; border-color: #e5e5e5; color: #5a5a5c; }
+
+  /* ── 인쇄(PDF) — A4 폭에 넓은 표(오버핏·10분위)가 잘리지 않도록 표만 촘촘하게 ── */
+  @media print {
+    table { font-size: 9.5px; }
+    thead th { padding: 5px 6px; letter-spacing: 0; white-space: normal; }   /* 머리글 줄바꿈 허용 */
+    tbody td { padding: 5px 6px; }
+    thead tr.sub-row th { font-size: 9px; padding: 3px 5px; }
+    .badge { padding: 1px 6px; font-size: 9px; }
+    /* 섹션 제목(번호 포함) 이 페이지 끝에 홀로 남거나 갈라지지 않게 */
+    h2, h3 { break-after: avoid; break-inside: avoid; }
+    h2 { display: block; }
+    h2 .sec-num { display: inline-block; text-align: center; line-height: 20px; margin-right: 8px; vertical-align: middle; }
+    tr, .chart-box img { break-inside: avoid; }
+  }

@@ -4,191 +4,7 @@
 <meta charset="utf-8" />
 <title>{{ title }}</title>
 <style>
-  /* ── 기본 리셋 & 폰트 ── */
-  @page { size: A4; margin: 15mm 18mm; }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
-    font-size: 12px;
-    color: #1e2329;
-    line-height: 1.6;
-    background: #fff;
-  }
-
-  /* ── 헤더 배너 ── */
-  .report-header {
-    background: linear-gradient(135deg, #1a56db 0%, #0e3a8c 100%);
-    color: #fff;
-    padding: 20px 24px 16px;
-    border-radius: 8px;
-    margin-bottom: 24px;
-  }
-  .report-header h1 {
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
-    margin-bottom: 10px;
-  }
-  .header-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .pill {
-    background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 20px;
-    padding: 3px 12px;
-    font-size: 11px;
-    color: #fff;
-    white-space: nowrap;
-  }
-  .pill strong { font-weight: 700; }
-  .pill.highlight {
-    background: #facc15;
-    border-color: #facc15;
-    color: #1e2329;
-  }
-
-  /* ── 섹션 제목 ── */
-  h2 {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1a56db;
-    margin: 28px 0 12px;
-    padding-bottom: 6px;
-    border-bottom: 2px solid #e5edff;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  h2 .sec-num {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px; height: 22px;
-    background: #1a56db;
-    color: #fff;
-    border-radius: 50%;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  h3 {
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-    margin: 14px 0 6px;
-  }
-
-  /* ── 카드 ── */
-  .card {
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    overflow: hidden;
-    margin-bottom: 16px;
-  }
-  .card-body { padding: 12px 14px; }
-
-  /* ── 표 ── */
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-  }
-  thead tr { background: #1a56db; color: #fff; }
-  thead th {
-    padding: 7px 10px;
-    text-align: right;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    white-space: nowrap;
-  }
-  thead th.left { text-align: left; }
-  tbody tr { border-bottom: 1px solid #f0f0f0; }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:nth-child(even) { background: #f9fafb; }
-  tbody tr:hover { background: #eff6ff; }
-  tbody td {
-    padding: 6px 10px;
-    text-align: right;
-    color: #374151;
-  }
-  tbody td.left { text-align: left; }
-
-  /* best 모델 행 강조 */
-  .best td { background: #e8f3ff !important; font-weight: 700; color: #1a56db; }
-  .best td.left { color: #1a56db; }
-
-  /* ── overfit gap 셀 색상 (Δ = train - test) ── */
-  /* 양수 gap 이 클수록 in-sample 점수가 holdout 보다 높다는 뜻 → 메모리제이션 신호 */
-  td.gap-high { color: #991b1b; font-weight: 700; }   /* |Δ| ≥ 0.10 */
-  td.gap-mid  { color: #b45309; font-weight: 600; }   /* 0.05 ≤ |Δ| < 0.10 */
-  td.gap-low  { color: #6b7280; }                      /* |Δ| < 0.05 */
-
-  /* overfit 표 그룹 헤더 (metric 별 colspan=3) */
-  thead tr.group-row { background: #1a56db; color: #fff; }
-  thead tr.sub-row   { background: #2563eb; color: #fff; }
-  thead tr.sub-row th { font-size: 10px; padding: 4px 6px; }
-  thead tr.group-row th { border-left: 1px solid rgba(255,255,255,0.25); }
-  thead tr.group-row th:first-child { border-left: none; }
-  thead tr.group-row th.left { text-align: left; }
-
-  /* ── 뱃지 ── */
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 10px;
-    font-weight: 600;
-    vertical-align: middle;
-  }
-  .badge-green  { background: #d1fae5; color: #065f46; }
-  .badge-gray   { background: #f3f4f6; color: #6b7280; }
-  .badge-red    { background: #fee2e2; color: #991b1b; }
-  .badge-blue   { background: #dbeafe; color: #1e40af; }
-
-  /* ── 진행바 (frequency) ── */
-  .bar-wrap { display: flex; align-items: center; gap: 6px; }
-  .bar-bg {
-    flex: 1;
-    height: 8px;
-    background: #e5e7eb;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .bar-fill { height: 100%; border-radius: 4px; background: #1a56db; }
-  .bar-fill.below { background: #d1d5db; }
-  .bar-val { min-width: 36px; text-align: right; font-size: 10px; color: #6b7280; }
-
-  /* ── 차트 그리드 ── */
-  .grid-2 { display: flex; gap: 12px; margin: 8px 0 16px; }
-  .grid-2 .chart-box { flex: 1 1 0; min-width: 0; }
-  .chart-box { margin: 8px 0 16px; }
-  .chart-box img { width: 100%; display: block; border-radius: 6px; border: 1px solid #e5e7eb; }
-
-  /* ── confusion matrix ── */
-  .cm-table { width: auto; }
-  .cm-table th, .cm-table td { min-width: 70px; text-align: center; }
-  .cm-table .cm-tn { background: #d1fae5; color: #065f46; font-weight: 700; }
-  .cm-table .cm-tp { background: #d1fae5; color: #065f46; font-weight: 700; }
-  .cm-table .cm-fp { background: #fee2e2; color: #991b1b; }
-  .cm-table .cm-fn { background: #fee2e2; color: #991b1b; }
-
-  /* ── config 표 ── */
-  .config-key { color: #6b7280; font-family: monospace; font-size: 10.5px; }
-  .config-val { font-family: monospace; font-size: 10.5px; color: #1e2329; }
-
-  /* ── 푸터 ── */
-  .footer {
-    margin-top: 28px;
-    padding-top: 10px;
-    border-top: 1px solid #e5e7eb;
-    font-size: 10px;
-    color: #9ca3af;
-    text-align: center;
-  }
+{% include "_style.css" %}
 </style>
 </head>
 <body>
@@ -289,7 +105,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <div class="card-body" style="font-size:10.5px;color:#6b7280;">
+  <div class="card-body" style="font-size:10.5px;color:#5a5a5c;">
     Δ = Train − Test. Train 은 final 모델을 학습 데이터에 fit 한 뒤 동일 학습 데이터로 in-sample 스코어링한 결과로,
     의도적으로 over-optimistic 한 추정치다. Test 와의 양의 gap 이 클수록 메모리제이션(overfit) 신호이며,
     <span class="gap-mid">|Δ| ≥ 0.05</span> / <span class="gap-high">|Δ| ≥ 0.10</span> 인 셀은 색으로 강조한다.
@@ -415,12 +231,12 @@
     </thead>
     <tbody>
       <tr>
-        <th style="text-align:left; padding:6px 10px; background:#f9fafb;">True 0</th>
+        <th style="text-align:left; padding:6px 10px; background:#fafafa;">True 0</th>
         <td class="cm-tn">{{ confusion[0][0] }}</td>
         <td class="cm-fp">{{ confusion[0][1] }}</td>
       </tr>
       <tr>
-        <th style="text-align:left; padding:6px 10px; background:#f9fafb;">True 1</th>
+        <th style="text-align:left; padding:6px 10px; background:#fafafa;">True 1</th>
         <td class="cm-fn">{{ confusion[1][0] }}</td>
         <td class="cm-tp">{{ confusion[1][1] }}</td>
       </tr>
@@ -450,16 +266,16 @@
 <h2><span class="sec-num">7</span> 모델 파라미터</h2>
 {% for row in tuning_rows %}
 <div class="card" style="margin-bottom:16px;">
-  <div class="card-body" style="padding:10px 14px 8px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+  <div class="card-body" style="padding:10px 14px 8px; border-bottom:1px solid #ededed; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
     <strong style="font-size:13px;">{{ row.name }}</strong>
     {% if row.name == best_model %}<span class="badge badge-blue">BEST</span>{% endif %}
     {% if row.tuned %}
-      <span class="pill" style="background:#d1fae5; color:#065f46; border-color:#6ee7b7;">튜닝 완료 · {{ row.n_trials }}회</span>
+      <span class="pill pill-ok">튜닝 완료 · {{ row.n_trials }}회</span>
       {% if row.best_value is not none %}
-      <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">best OOF {{ '%.4f'|format(row.best_value) }}</span>
+      <span class="pill pill-info">best OOF {{ '%.4f'|format(row.best_value) }}</span>
       {% endif %}
     {% else %}
-      <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">튜닝 미수행</span>
+      <span class="pill pill-muted">튜닝 미수행</span>
     {% endif %}
   </div>
   <table>
@@ -482,24 +298,24 @@
 {% if selection %}
 <h2><span class="sec-num">8</span> 변수 선택 (Stability Selection)</h2>
 <div class="header-pills" style="margin-bottom:12px;">
-  <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
+  <span class="pill pill-info">
     base: <strong>{{ selection.base_estimator }}</strong>
   </span>
-  <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
+  <span class="pill pill-info">
     부분표본 <strong>{{ selection.n_subsamples }}</strong>회
   </span>
-  <span class="pill" style="background:#e8f3ff; color:#1a56db; border-color:#bfdbfe;">
+  <span class="pill pill-info">
     임계값 <strong>{{ '%.2f'|format(selection.threshold) }}</strong>
   </span>
-  <span class="pill" style="background:#d1fae5; color:#065f46; border-color:#6ee7b7;">
+  <span class="pill pill-ok">
     채택 <strong>{{ selection.n_selected }} / {{ selection.n_total }}</strong>
   </span>
   {% if selection.fallback_used %}
-  <span class="pill" style="background:#fee2e2; color:#991b1b; border-color:#fca5a5;">
+  <span class="pill pill-bad">
     ⚠ min_selected fallback 발동
   </span>
   {% endif %}
-  <span class="pill" style="background:#f3f4f6; color:#6b7280; border-color:#e5e7eb;">
+  <span class="pill pill-muted">
     표 노출 {{ selection.top_n }} / 전체 {{ selection.n_total }}
     (전체 분포는 feature_selection.csv)
   </span>

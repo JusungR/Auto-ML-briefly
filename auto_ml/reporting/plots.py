@@ -8,15 +8,59 @@ GUI 환경 없이도 동작하도록 한다 (서버/배치/폐쇄망 친화).
 from __future__ import annotations
 
 import base64
+import functools
 import io
-from typing import Iterable
 
 import matplotlib
 
 matplotlib.use("Agg")  # GUI 없이 동작하도록 백엔드 고정. import 직후 1회만 호출.
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from cycler import cycler  # noqa: E402
 from sklearn.metrics import precision_recall_curve, roc_curve  # noqa: E402
+
+# ── 차트 색·스타일 (리포트 CSS templates/_style.css 와 같은 Mintlify 계열 기준) ──
+ACCENT = "#00b48a"        # 강조 (민트)
+MUTED = "#d4d4d4"         # 비강조 막대
+BASELINE = "#a8a8aa"      # 기준선 (무작위 모델 등)
+ALERT = "#d45656"         # 임계값·경고선
+# 모델 곡선 순서 색 — 서로 잘 구분되는 색만 (민트, 파랑, 황토, 빨강, 짙은 회색, 연민트)
+PALETTE = ["#00b48a", "#3772cf", "#c37d0d", "#d45656", "#3a3a3c", "#7cebcb"]
+_INK = "#3a3a3c"
+
+_STYLE = {
+    "axes.prop_cycle": cycler(color=PALETTE),
+    "axes.edgecolor": "#d4d4d4",
+    "axes.labelcolor": _INK,
+    "axes.titlecolor": "#0a0a0a",
+    "axes.titlesize": 11,
+    "axes.titleweight": "semibold",
+    "axes.labelsize": 9,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "grid.color": "#ededed",
+    "grid.linewidth": 0.8,
+    "axes.axisbelow": True,
+    "xtick.color": _INK,
+    "ytick.color": _INK,
+    "xtick.labelsize": 8.5,
+    "ytick.labelsize": 8.5,
+    "legend.frameon": True,
+    "legend.edgecolor": "#e5e5e5",
+    "legend.fontsize": 8.5,
+    "lines.linewidth": 1.6,
+    "figure.facecolor": "white",
+}
+
+
+def _themed(fn):
+    """차트 함수를 리포트 스타일로 그린다 (전역 rcParams 는 바꾸지 않음)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with plt.rc_context(_STYLE):
+            return fn(*args, **kwargs)
+    return wrapper
 
 
 def _fig_to_base64(fig) -> str:
@@ -32,6 +76,7 @@ def _fig_to_base64(fig) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+@_themed
 def roc_curve_plot(curves: dict[str, tuple[np.ndarray, np.ndarray]], title: str = "ROC Curve") -> str:
     """모델별 ROC 곡선을 한 차트에 그린다.
 
@@ -42,7 +87,7 @@ def roc_curve_plot(curves: dict[str, tuple[np.ndarray, np.ndarray]], title: str 
     for name, (y_true, y_proba) in curves.items():
         fpr, tpr, _ = roc_curve(y_true, y_proba)
         ax.plot(fpr, tpr, label=name)
-    ax.plot([0, 1], [0, 1], linestyle="--", color="grey", linewidth=1)
+    ax.plot([0, 1], [0, 1], linestyle="--", color=BASELINE, linewidth=1)
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     ax.set_title(title)
@@ -50,6 +95,7 @@ def roc_curve_plot(curves: dict[str, tuple[np.ndarray, np.ndarray]], title: str 
     return _fig_to_base64(fig)
 
 
+@_themed
 def pr_curve_plot(curves: dict[str, tuple[np.ndarray, np.ndarray]], title: str = "Precision-Recall Curve") -> str:
     """모델별 Precision-Recall 곡선을 한 차트에 그린다."""
     fig, ax = plt.subplots(figsize=(6, 5))
@@ -63,6 +109,7 @@ def pr_curve_plot(curves: dict[str, tuple[np.ndarray, np.ndarray]], title: str =
     return _fig_to_base64(fig)
 
 
+@_themed
 def feature_importance_plot(
     importance: dict[str, float],
     top_n: int | None = 20,
@@ -83,12 +130,13 @@ def feature_importance_plot(
     names = [name for name, _ in items][::-1]
     values = [val for _, val in items][::-1]
     fig, ax = plt.subplots(figsize=(7, max(3, 0.3 * len(names) + 1)))
-    ax.barh(names, values)
+    ax.barh(names, values, color=ACCENT)
     ax.set_xlabel(xlabel)
     ax.set_title(title)
     return _fig_to_base64(fig)
 
 
+@_themed
 def score_distribution_plot(
     proba_by_label: dict[int, np.ndarray], title: str = "Score Distribution",
 ) -> str:
@@ -96,7 +144,8 @@ def score_distribution_plot(
     fig, ax = plt.subplots(figsize=(7, 4.5))
     bins = np.linspace(0, 1, 41)
     for label, scores in proba_by_label.items():
-        ax.hist(scores, bins=bins, alpha=0.5, label=f"y={label}", density=True)
+        color = ACCENT if int(label) == 1 else BASELINE
+        ax.hist(scores, bins=bins, alpha=0.55, label=f"y={label}", density=True, color=color)
     ax.set_xlabel("Predicted probability")
     ax.set_ylabel("Density")
     ax.set_title(title)
@@ -165,6 +214,7 @@ def decile_analysis(
     return rows, chart
 
 
+@_themed
 def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> str:
     """10-분위 누적 타겟/비타겟 캡처율을 gains chart 형태로 그린다.
 
@@ -181,14 +231,16 @@ def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> st
     ax2 = ax.twinx()
 
     # lift 막대 (우측 축)
-    ax2.bar(deciles, lifts, color="#cccccc", alpha=0.5, label="cumulative lift")
+    ax2.bar(deciles, lifts, color=MUTED, alpha=0.6, label="cumulative lift")
+    ax2.grid(False)
+    ax2.spines["right"].set_visible(True)
     ax2.set_ylabel("Cumulative Lift")
     ax2.set_ylim(bottom=0)
 
     # 누적 캡처율 라인 (좌측 축)
-    ax.plot(deciles, cum_target, marker="o", color="#1f77b4", label="cum target rate")
-    ax.plot(deciles, cum_nontarget, marker="s", color="#ff7f0e", label="cum non-target rate")
-    ax.plot(deciles, cum_count_pct, linestyle="--", color="grey", linewidth=1, label="random baseline")
+    ax.plot(deciles, cum_target, marker="o", color=ACCENT, label="cum target rate")
+    ax.plot(deciles, cum_nontarget, marker="s", color=PALETTE[1], label="cum non-target rate")
+    ax.plot(deciles, cum_count_pct, linestyle="--", color=BASELINE, linewidth=1, label="random baseline")
     ax.set_xlabel("Decile (1 = top 10% by score)")
     ax.set_ylabel("Cumulative Rate")
     ax.set_xticks(deciles)
@@ -202,6 +254,7 @@ def _decile_chart(rows: list[dict], title: str = "Decile Analysis (Test)") -> st
     return _fig_to_base64(fig)
 
 
+@_themed
 def feature_selection_plot(
     frequencies: dict[str, float],
     threshold: float,
@@ -220,11 +273,11 @@ def feature_selection_plot(
     names = [n for n, _ in items][::-1]   # 위쪽이 가장 높은 빈도가 되도록 역순
     values = [v for _, v in items][::-1]
     # 채택/미채택을 색으로 구분 — 시각적으로 임계값 위/아래를 즉시 구별
-    colors = ["#1f77b4" if v >= threshold else "#cccccc" for v in values]
+    colors = [ACCENT if v >= threshold else MUTED for v in values]
 
     fig, ax = plt.subplots(figsize=(7, max(3, 0.3 * len(names) + 1)))
     ax.barh(names, values, color=colors)
-    ax.axvline(threshold, color="#d62728", linestyle="--", linewidth=1,
+    ax.axvline(threshold, color=ALERT, linestyle="--", linewidth=1,
                label=f"threshold = {threshold:.2f}")
     ax.set_xlim(0, 1.0)
     ax.set_xlabel("Selection Probability")
