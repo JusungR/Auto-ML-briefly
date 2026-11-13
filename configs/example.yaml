@@ -44,7 +44,7 @@ preprocessing:
   # 1.5) 범주값 정리 (선택, 결측 처리 직후) — 변수마다 keep 또는 min_count 중 하나.
   #   남기지 않은 값(추론 때 처음 보는 값 포함) 은 categorical_other_label 로 묶인다.
   # categorical_levels:
-  #   region:  { keep: ["서울", "부산"] }
+  #   region:  { keep: ["서울", "부산"] }      # 코드는 따옴표로: ["01", "02"] ([01] 은 숫자 1)
   #   channel: { min_count: 50 }
   categorical_other_label: __other__
 

@@ -130,11 +130,16 @@ class PreprocessingPipeline:
         x = self._normalize(df)
         x = self.imputer.transform(x)
         grouper = getattr(self, "_grouper", None)  # 과거 artifact 에는 속성이 없다
+        grouped_unseen: dict[str, dict[str, Any]] = {}
         if grouper is not None:
             x = grouper.transform(x)
+            grouped_unseen = dict(grouper.last_unseen_)
         x = self.outlier.transform(x)
         x = self.skew.transform(x)
         x = self.scaler.transform(x)
+        # 정리 대상 컬럼의 미학습 값은 정리 후 결과로는 알 수 없으므로, 이 결과 객체에 대한
+        # unseen_category_stats 호출에서 함께 돌려준다 (다른 DataFrame 에는 쓰지 않음).
+        self._grouped_unseen = (id(x), grouped_unseen)
         return x
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -171,6 +176,10 @@ class PreprocessingPipeline:
         n_rows = len(df)
         if n_rows == 0:
             return stats
+        out_id, grouped = getattr(self, "_grouped_unseen", (None, {}))
+        if out_id == id(df):
+            stats.update(grouped)
+            levels = {c: v for c, v in levels.items() if c not in grouped}
         for col, seen in levels.items():
             if col not in df.columns:
                 continue

@@ -125,9 +125,10 @@ def log_unseen_categories(
         stats = {c: v for c, v in stats.items() if c in keep}
     for col, st in stats.items():
         level = "warning" if st["rate"] >= UNSEEN_WARN_RATE else "info"
+        grouped = f" -> grouped into '{st['grouped_into']}'" if st.get("grouped_into") else ""
         getattr(logger, level)(
-            "[%s] unseen categories in '%s': %d / %d rows (%.2f%%), e.g. %s",
+            "[%s] unseen categories in '%s': %d / %d rows (%.2f%%), e.g. %s%s",
             context, col, st["n_unseen"], st["n_rows"], 100 * st["rate"],
-            st["examples"],
+            st["examples"], grouped,
         )
     return stats

@@ -27,6 +27,7 @@ from auto_ml.models.xgb_model import XGBModel
 from auto_ml.pipeline import AutoMLPipeline
 from auto_ml.preprocessing.pipeline import PreprocessingPipeline
 from auto_ml.scoring.scorer import Scorer
+from auto_ml.utils.categorical import log_unseen_categories
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -138,8 +139,26 @@ def test_typo_in_keep_and_unseen_values_are_logged(caplog):
     pipe.fit(_frame(["a", "b", "a"]))
     assert any("zz" in r.getMessage() and "typo" in r.getMessage() for r in caplog.records)
     caplog.clear()
-    pipe.transform(_frame(["a", "new"]))
-    assert any("unseen categories in 'cat'" in r.getMessage() for r in caplog.records)
+    out = pipe.transform(_frame(["a", "new"]))
+    stats = log_unseen_categories(pipe, out, logging.getLogger("t"), context="score_input")
+    assert stats["cat"]["n_unseen"] == 1 and stats["cat"]["examples"] == ["new"]
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any(m.startswith("[score_input] unseen categories in 'cat'")
+               and "grouped into '__other__'" in m for m in msgs)
+    # 다른 DataFrame 에는 직전 transform 의 통계를 붙이지 않는다
+    assert "cat" not in pipe.unseen_category_stats(out.copy())
+
+
+def test_keep_with_no_matching_value_is_an_error():
+    """YAML 의 keep: [01, 02] 는 숫자 1, 2 로 읽혀 "01" 코드와 맞지 않는다 → 조용히 전부 묶이지 않게 에러."""
+    import yaml
+
+    rule = yaml.safe_load("keep: [01, 02]")
+    pipe = _pipe({"cat": rule})
+    with pytest.raises(ValueError, match="quoted"):
+        pipe.fit(_frame(["01", "02", "03"]))
+    quoted = _pipe({"cat": yaml.safe_load('keep: ["01", "02"]')})
+    assert set(quoted.fit_transform(_frame(["01", "02", "03"]))["cat"]) == {"01", "02", "__other__"}
 
 
 def test_pipeline_without_grouper_attribute_still_works():
@@ -178,6 +197,22 @@ def test_onehot_params(name, key, expected):
     user = build_model(name, params={key: 2}, categorical_columns=["c"],
                        categorical_encoding="onehot")
     assert user._onehot_params(X) == {}                      # 사용자 지정이 우선
+
+
+def test_onehot_notices_are_logged_once(caplog):
+    """튜닝 trial × fold 마다 같은 안내가 반복되지 않는다."""
+    from auto_ml.models import base
+
+    base._LOGGED_ONCE.clear()
+    caplog.set_level(logging.INFO)
+    X = pd.DataFrame({"c": [f"v{i}" for i in range(60)]})
+    for _ in range(5):
+        build_model("lgbm", categorical_columns=["c"], categorical_encoding="onehot")._onehot_params(X)
+        build_model("lgbm", params={"max_cat_to_onehot": 3}, categorical_columns=["c"],
+                    categorical_encoding="onehot")._onehot_params(X)
+    msgs = [r.getMessage() for r in caplog.records]
+    assert sum("up to 60 categories" in m for m in msgs) == 1
+    assert sum("using the user value" in m for m in msgs) == 1
 
 
 def test_catboost_onehot_cap():

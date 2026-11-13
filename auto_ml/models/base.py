@@ -22,6 +22,16 @@ from auto_ml.utils.logger import get_logger
 
 logger = get_logger("models")
 
+# 같은 안내를 튜닝 trial × CV fold 마다 반복해 남기지 않도록, 프로세스당 한 번만 남긴다.
+_LOGGED_ONCE: set[tuple] = set()
+
+
+def _log_once(key: tuple, level: str, msg: str, *args: Any) -> None:
+    if key in _LOGGED_ONCE:
+        return
+    _LOGGED_ONCE.add(key)
+    getattr(logger, level)(msg, *args)
+
 
 class BaseModel(ABC):
     """모든 모델 래퍼가 따르는 공통 인터페이스.
@@ -103,9 +113,10 @@ class BaseModel(ABC):
         if getattr(self, "categorical_encoding", "native") != "onehot" or name is None:
             return {}
         if name in self.params:
-            logger.info(
-                "%s: categorical_encoding=onehot but %s=%s is set in params — using it",
-                type(self).__name__, name, self.params[name],
+            _log_once(
+                (type(self).__name__, "user", name), "info",
+                "%s: categorical_encoding=onehot but %s is set in params — using the user value",
+                type(self).__name__, name,
             )
             return {}
         cols = [c for c in self.categorical_columns if c in X.columns]
@@ -113,14 +124,16 @@ class BaseModel(ABC):
             return {}
         k = max(int(X[c].nunique(dropna=True)) for c in cols)
         if k > self.ONEHOT_WARN_CARDINALITY:
-            logger.warning(
+            _log_once(
+                (type(self).__name__, "many"), "warning",
                 "%s: categorical_encoding=onehot with up to %d categories per column — "
                 "consider preprocessing.categorical_levels to keep only meaningful values",
                 type(self).__name__, k,
             )
         value = max(k, 1) + self.ONEHOT_OFFSET
         if self.ONEHOT_PARAM_MAX is not None and value > self.ONEHOT_PARAM_MAX:
-            logger.warning(
+            _log_once(
+                (type(self).__name__, "cap"), "warning",
                 "%s: %s capped at %d (needs %d) — columns with more categories keep the "
                 "library's default handling", type(self).__name__, name,
                 self.ONEHOT_PARAM_MAX, value,

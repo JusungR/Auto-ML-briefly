@@ -197,7 +197,9 @@ models:
 ```
 
 - `categorical_levels` — 남길 값 목록은 학습 때 정해져 모델 파일에 저장되므로 추론에도 같게 적용된다.
-  결측을 채운 값(`MISSING`·최빈값) 도 남길 값이 아니면 묶인다.
+  결측을 채운 값(`MISSING`·최빈값) 도 남길 값이 아니면 묶이고, `min_count` 는 결측을 채운 뒤 건수로 센다.
+  앞자리 0 인 코드는 따옴표로 적는다(`keep: ["01"]` — `[01]` 은 숫자 1 로 읽힘). `keep` 값이 학습 데이터에
+  하나도 없으면 에러.
 - `categorical_encoding: onehot` — 트리 모델이 범주 하나씩 "그 값이냐 아니냐" 로만 분할한다(원-핫과 같은
   분할). LightGBM·XGBoost 는 `max_cat_to_onehot`, CatBoost 는 `one_hot_max_size` 를 학습 데이터 범주 수에
   맞춰 넣는다. 그 모델의 모든 범주형 변수에 적용되고, `fixed_params` 에 직접 쓴 값이 우선한다.

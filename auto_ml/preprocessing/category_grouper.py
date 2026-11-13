@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 
-from auto_ml.utils.categorical import UNSEEN_WARN_RATE, _normalize_scalar
+from auto_ml.utils.categorical import _normalize_scalar
 from auto_ml.utils.logger import get_logger
 
 logger = get_logger("preprocessing.category_grouper")
@@ -39,6 +39,7 @@ class CategoryGrouper:
         self.other_label = other_label
         self.kept: dict[str, frozenset] = {}
         self.seen: dict[str, frozenset] = {}  # 학습 데이터에 있던 값 (미학습 값 진단용)
+        self.last_unseen_: dict[str, dict[str, Any]] = {}  # 직전 transform 의 미학습 값 통계
         self.summary_: dict[str, dict[str, Any]] = {}
 
     @property
@@ -63,6 +64,13 @@ class CategoryGrouper:
                 keep = {_normalize_scalar(v) for v in rule["keep"]}
                 keep = {v for v in keep if isinstance(v, str)}  # 결측(None/NaN) 은 제외
                 absent = sorted(keep - set(counts.index))
+                if keep and not (keep & set(counts.index)):
+                    raise ValueError(
+                        f"categorical_levels: none of the keep values {sorted(keep)} of '{col}' "
+                        f"occur in the training data (values include: {list(counts.index[:10])}). "
+                        "Codes with leading zeros must be quoted in YAML — keep: [01] is read "
+                        "as the number 1; write keep: [\"01\"]."
+                    )
                 if absent:
                     logger.warning(
                         "categorical_levels: values %s of '%s' do not occur in the training "
@@ -101,33 +109,39 @@ class CategoryGrouper:
         if not self.kept:
             return df
         out = df.copy()
+        self.last_unseen_ = {}
         for col, kept in self.kept.items():
             if col not in out.columns:
                 continue
             s = out[col]
-            self._log_unseen(col, s)
+            stats = self._unseen(col, s)
+            if stats:
+                self.last_unseen_[col] = stats
             mask = s.notna() & ~s.isin(kept)
             if mask.any():
                 out[col] = s.where(~mask, self.other_label)
         return out
 
-    def _log_unseen(self, col: str, s: pd.Series) -> None:
-        """학습 때 없던 값을 로그로 남긴다 — 정리 후에는 other_label 에 섞여 구분되지 않으므로
-        여기서 남긴다 (``PreprocessingPipeline.unseen_category_stats`` 와 같은 기준)."""
+    def _unseen(self, col: str, s: pd.Series) -> dict[str, Any] | None:
+        """학습 때 없던 값의 통계 — 정리 후에는 other_label 에 섞여 구분되지 않으므로 정리 전에 센다.
+
+        반환 형식은 ``PreprocessingPipeline.unseen_category_stats`` 와 같다 (그쪽에서 합쳐
+        ``[test]`` / ``[score_input]`` 표시와 함께 로그로 남긴다).
+        """
         seen = self.seen.get(col)
         if seen is None or len(s) == 0:
-            return
+            return None
         mask = s.notna() & ~s.isin(seen)
         n = int(mask.sum())
         if n == 0:
-            return
-        rate = n / len(s)
-        level = logger.warning if rate >= UNSEEN_WARN_RATE else logger.info
-        level(
-            "unseen categories in '%s': %d / %d rows (%.2f%%), e.g. %s -> grouped into '%s'",
-            col, n, len(s), 100 * rate, list(s[mask].value_counts().index[:5]),
-            self.other_label,
-        )
+            return None
+        return {
+            "n_unseen": n,
+            "n_rows": len(s),
+            "rate": n / len(s),
+            "examples": list(s[mask].value_counts().index[:5]),
+            "grouped_into": self.other_label,
+        }
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
         return self.fit(df).transform(df)
