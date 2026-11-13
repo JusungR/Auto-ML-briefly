@@ -5,16 +5,17 @@
 <title>{{ title }}</title>
 <style>
 {% include "_style.css" %}
+{{ font_face_css()|safe }}
 </style>
 </head>
 <body>
 
-<a class="back-link" href="../../report.html">← Main report</a>
+<a class="back-link" href="../../report.html">&lsaquo; Main report</a>
 
 <div class="report-header">
   <h1>{{ title }} — {{ model_name }} (sub)</h1>
   <div class="header-pills">
-    <span class="pill">🕐 {{ generated_at }}</span>
+    <span class="pill">생성 {{ generated_at }}</span>
     <span class="pill">모형 <strong>{{ model_name }}</strong></span>
     <span class="pill">{{ primary_metric }} = <strong>{{ '%.4f'|format(metric_value) }}</strong></span>
     <span class="pill">BEST({{ best_model_name }}) = {{ '%.4f'|format(best_score) }}</span>
@@ -60,8 +61,8 @@
 <!-- ═══ 2. Feature Importance ═══ -->
 <h2><span class="sec-num">2</span> Feature Importance — {{ model_name }}</h2>
 <h3>relative · top {{ top_features }} · 전체 분포는 feature_importance.csv</h3>
-<div class="card" style="display: flex; gap: 16px; padding: 12px 14px;">
-  <div style="flex: 1;">
+<div class="card split-tables">
+  <div class="split-col">
     <table style="width: 100%;">
       <thead>
         <tr>
@@ -81,7 +82,7 @@
       </tbody>
     </table>
   </div>
-  <div style="flex: 1;">
+  <div class="split-col">
     <table style="width: 100%;">
       <thead>
         <tr>
@@ -196,7 +197,7 @@
   </span>
   {% if selection.fallback_used %}
   <span class="pill pill-bad">
-    ⚠ min_selected fallback 발동
+    주의: min_selected fallback 발동
   </span>
   {% endif %}
   <span class="pill pill-muted">

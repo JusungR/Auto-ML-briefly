@@ -409,6 +409,9 @@ class ReportingConfig:
             노출할 상위 변수 개수. None 이면 모든 변수. CSV 는 항상 전체를 저장한다.
         top_selection_features: HTML 리포트의 변수 선택 결과 표/차트에
             노출할 상위 변수 개수. None (기본) 이면 모든 변수. CSV 는 항상 전체를 저장한다.
+        font_path: 리포트(HTML·PDF·차트) 에 쓸 한글 폰트 파일(.ttf/.otf/.ttc) 경로. None (기본)
+            이면 설치된 한글 폰트(Noto Sans CJK KR, 나눔고딕, 맑은 고딕 등) 를 찾아 쓴다.
+            서버에 한글 폰트가 없어 PDF·차트의 한글이 깨질 때 폰트 파일을 복사해 지정한다.
     """
 
     output_dir: str = "./artifacts/reports"
@@ -417,6 +420,7 @@ class ReportingConfig:
     title: str = "Auto-ML Binary Classification Report"
     top_importance_features: int | None = 30
     top_selection_features: int | None = None
+    font_path: str | None = None
 
 
 @dataclass

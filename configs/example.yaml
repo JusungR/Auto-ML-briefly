@@ -280,6 +280,7 @@ reporting:
   generate_html: true
   generate_pdf: true
   title: Auto-ML Binary Classification Report
+  font_path: null      # 한글 폰트 파일(.ttf/.otf). null = 설치된 한글 폰트 자동 사용 (없으면 PDF·차트 한글 깨짐)
 
 # ==== 주기 스코어링 =============================================
 scoring:

@@ -19,6 +19,8 @@ import numpy as np  # noqa: E402
 from cycler import cycler  # noqa: E402
 from sklearn.metrics import precision_recall_curve, roc_curve  # noqa: E402
 
+from auto_ml.reporting.fonts import chart_font_family  # noqa: E402
+
 # ── 차트 색·스타일 (리포트 CSS templates/_style.css 와 같은 Mintlify 계열 기준) ──
 ACCENT = "#00b48a"        # 강조 (민트)
 MUTED = "#d4d4d4"         # 비강조 막대
@@ -34,7 +36,7 @@ _STYLE = {
     "axes.labelcolor": _INK,
     "axes.titlecolor": "#0a0a0a",
     "axes.titlesize": 11,
-    "axes.titleweight": "semibold",
+    "axes.titleweight": "bold",
     "axes.labelsize": 9,
     "axes.spines.top": False,
     "axes.spines.right": False,
@@ -58,7 +60,9 @@ def _themed(fn):
     """차트 함수를 리포트 스타일로 그린다 (전역 rcParams 는 바꾸지 않음)."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        with plt.rc_context(_STYLE):
+        # 한글 변수명이 깨지지 않도록 설치된 한글 폰트를 글꼴 맨 앞에 둔다 (fonts.py)
+        style = {**_STYLE, "font.family": chart_font_family(), "axes.unicode_minus": False}
+        with plt.rc_context(style):
             return fn(*args, **kwargs)
     return wrapper
 
@@ -144,7 +148,7 @@ def score_distribution_plot(
     fig, ax = plt.subplots(figsize=(7, 4.5))
     bins = np.linspace(0, 1, 41)
     for label, scores in proba_by_label.items():
-        color = ACCENT if int(label) == 1 else BASELINE
+        color = ACCENT if label == 1 else BASELINE
         ax.hist(scores, bins=bins, alpha=0.55, label=f"y={label}", density=True, color=color)
     ax.set_xlabel("Predicted probability")
     ax.set_ylabel("Density")

@@ -21,7 +21,10 @@ from auto_ml import __version__
 from auto_ml.config import AutoMLConfig
 from auto_ml.feature_selection import SelectionResult
 from auto_ml.models.trainer import TrainingResult
-from auto_ml.reporting import plots  # 동일 패키지 모듈 — 순환 위험 없음
+from auto_ml.reporting import (
+    fonts,
+    plots,  # 동일 패키지 모듈 — 순환 위험 없음
+)
 from auto_ml.reporting.metrics import confusion
 from auto_ml.utils.logger import get_logger
 
@@ -29,6 +32,31 @@ logger = get_logger("report")
 
 # 리포트 표에 노출할 지표 순서
 METRIC_NAMES = ("roc_auc", "ks", "lift", "accuracy", "precision", "recall", "f1", "pr_auc")
+
+
+def _layout_overflow(document: Any, tolerance: float = 1.0) -> list[tuple[int, str]]:
+    """WeasyPrint 레이아웃에서 페이지 본문 폭을 넘는 요소를 찾는다 → ``[(페이지, 요소)]``.
+
+    PDF 에서는 넘친 부분이 잘려 보이지 않으므로 경고에 쓴다. WeasyPrint 내부 구조
+    (``page._page_box``) 를 읽으므로 버전이 달라 읽을 수 없으면 빈 목록을 돌려준다.
+    """
+    found: list[tuple[int, str]] = []
+    try:
+        for page_no, page in enumerate(document.pages, 1):
+            page_box = page._page_box
+            right = page_box.content_box_x() + page_box.width + tolerance
+            stack = list(page_box.children)
+            while stack:
+                box = stack.pop()
+                x = getattr(box, "position_x", None)
+                if x is not None and hasattr(box, "margin_width") and x + box.margin_width() > right:
+                    text = getattr(box, "text", None)
+                    if text:  # 넘친 글자 단위로 보고 (컨테이너는 생략)
+                        found.append((page_no, text.strip()[:40]))
+                stack.extend(getattr(box, "children", None) or [])
+    except Exception:  # noqa: BLE001 — 진단용이므로 실패해도 PDF 생성은 계속
+        return []
+    return found
 
 
 class ReportBuilder:
@@ -41,6 +69,9 @@ class ReportBuilder:
             loader=FileSystemLoader(str(templates_dir)),
             autoescape=select_autoescape(enabled_extensions=("html",)),
         )
+        # 한글 폰트: reporting.font_path 또는 설치된 폰트 (CSS @font-face · 차트 글꼴)
+        fonts.configure(getattr(config.reporting, "font_path", None))
+        self.env.globals["font_face_css"] = fonts.font_face_css
 
     def build(
         self,
@@ -379,7 +410,21 @@ class ReportBuilder:
         """
         from weasyprint import HTML  # type: ignore
 
-        HTML(string=html_str).write_pdf(str(pdf_path))
+        if fonts.korean_font_available() is False:
+            logger.warning(
+                "No Korean font is installed for PDF rendering — Korean text in %s may appear "
+                "as empty boxes. Install a Korean font (e.g. fonts-noto-cjk or fonts-nanum) or "
+                "set reporting.font_path to a .ttf/.otf file.", pdf_path.name,
+            )
+        document = HTML(string=html_str).render()
+        overflow = _layout_overflow(document)
+        if overflow:
+            logger.warning(
+                "PDF %s: content wider than the page on page(s) %s and may be cut off "
+                "(e.g. %s). Check the HTML report for the full content.",
+                pdf_path.name, sorted({p for p, _ in overflow}), overflow[0][1],
+            )
+        document.write_pdf(str(pdf_path))
 
     # ------------------------------------------------------------------
     def _build_sub_report(

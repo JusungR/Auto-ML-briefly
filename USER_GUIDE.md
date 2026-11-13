@@ -134,6 +134,9 @@ ML 코드를 직접 작성할 필요는 없습니다. **YAML 설정 한 개**와
   - macOS: `brew install pango libffi`
   - Ubuntu/Debian: `sudo apt-get install libpango-1.0-0 libpangoft2-1.0-0`
   - 미설치 시 학습/스코어링은 정상 동작하고 HTML 리포트만 생성됩니다.
+- (PDF·차트의 한글을 위해) **한글 폰트** — 서버에 한글 폰트가 없으면 PDF 와 차트의 한글이 빈 네모로 나옵니다.
+  - Ubuntu/Debian: `sudo apt-get install fonts-noto-cjk` (또는 `fonts-nanum`)
+  - 설치할 수 없으면 `.ttf`/`.otf` 폰트 파일을 복사해 `reporting.font_path` 에 지정합니다 ([§15](#15-리포트-reporting)).
 
 ### 디스크 / 메모리
 
@@ -1121,6 +1124,7 @@ HTML / PDF 동일 내용 리포트를 생성합니다(Jinja2 + WeasyPrint). 모�
 | `title` | str | `Auto-ML Binary Classification Report` | 리포트 제목 |
 | `top_importance_features` | int / null | `30` | feature importance 표·차트에 노출할 상위 N개. null = 전체 |
 | `top_selection_features` | int / null | `null` | 변수 선택 결과 노출 상위 N개. null = 전체 |
+| `font_path` | str / null | `null` | 리포트(HTML·PDF·차트) 에 쓸 한글 폰트 파일. null = 설치된 한글 폰트 자동 탐색 |
 
 ### YAML 예시
 
@@ -1132,6 +1136,7 @@ reporting:
   title: Credit Card Default Auto-ML Report
   top_importance_features: 30
   top_selection_features: null
+  font_path: null          # 예: /opt/fonts/NanumGothic.ttf (서버에 한글 폰트가 없을 때)
 ```
 
 ### 동작 메모
@@ -1140,6 +1145,14 @@ reporting:
   모델(`best.joblib` 등)은 리포트보다 먼저 저장되고, HTML·CSV 도 정상 생성되며, 로그에
   `PDF report skipped` WARNING 이 한 번 남습니다. PDF 가 필요 없으면 `generate_pdf: false` 로
   끄고, 필요하면 §3 의 시스템 패키지를 설치하세요.
+- **PDF 글자 깨짐 방지:** 본문은 Noto Sans CJK KR → 나눔고딕 → 맑은 고딕 → Apple SD Gothic Neo 순으로
+  설치된 한글 폰트를 씁니다. 차트(matplotlib) 도 설치된 한글 폰트를 찾아 쓰므로 한글 변수명이 깨지지
+  않습니다. PDF 를 만들 때 한글 폰트가 하나도 없으면 WARNING 을 남깁니다 — 이때 한글 폰트를 설치하거나
+  `font_path` 를 지정하세요. 서버마다 폰트가 달라 HTML 과 PDF 의 글자 모양은 조금 다를 수 있습니다.
+- **PDF 양식 잘림 방지:** PDF 에서는 표 글자·간격을 줄이고, 오버핏 점검 표는 모델 4개씩 나눠 A4 폭에
+  맞춥니다. 공백 없는 긴 변수명·설정값은 칸 안에서 줄바꿈되고, 숫자는 줄바꿈하지 않습니다. 그래도 페이지
+  폭을 넘는 내용이 있으면 PDF 생성 시 `content wider than the page` WARNING 으로 쪽 번호를 알려 줍니다
+  (전체 내용은 HTML 리포트에서 확인).
 - 부속 CSV (`feature_importance.csv`, `feature_selection.csv`) 는 **항상 전체 변수**를
   저장합니다 (`top_*` 옵션은 HTML 표시에만 영향).
 - best 가 아닌 모형마다 별도 sub-report 가 자동 생성됩니다 (`output_dir/sub/<name>/report.{html,pdf}`).
@@ -1590,7 +1603,7 @@ pip install --no-index --find-links=wheelhouse -r requirements.txt
 python inference/run_all.py --config configs/my_config.yaml
 ```
 
-PDF 리포트가 필요하면 WeasyPrint 시스템 의존성(libpango 등)도 함께 배포하세요.
+PDF 리포트가 필요하면 WeasyPrint 시스템 의존성(libpango 등)과 **한글 폰트**(예: `fonts-noto-cjk`, 또는 폰트 파일 + `reporting.font_path`) 도 함께 배포하세요.
 
 ---
 

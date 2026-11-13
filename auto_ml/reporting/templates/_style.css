@@ -11,8 +11,11 @@
   @page { size: A4; margin: 15mm 18mm; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: Inter, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR",
-                 -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    /* 한글 폰트를 여러 개 지정 — 서버(PDF)·PC(HTML) 에 설치된 것 중 앞의 것을 쓴다.
+       DejaVu Sans 는 ✓ Δ ≥ 같은 기호용 (리눅스 기본 폰트). reporting.font_path 를 주면 맨 앞에 추가됨 */
+    font-family: Inter, "Noto Sans CJK KR", "Noto Sans KR", "NanumGothic", "NanumBarunGothic",
+                 "Malgun Gothic", "Apple SD Gothic Neo", "AppleGothic",
+                 -apple-system, "Segoe UI", "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
     font-size: 12px;
     color: #1c1c1e;
     line-height: 1.55;
@@ -127,6 +130,13 @@
     color: #1c1c1e;
   }
   tbody td.left { text-align: left; }
+  /* 글자 칸(변수명·설정값) 만 공백 없는 긴 값도 칸 안에서 줄바꿈 — 표가 페이지 밖으로 밀리지 않게.
+     숫자 칸·뱃지는 한 줄 유지 (숫자가 중간에서 끊기지 않게) */
+  tbody td.left { overflow-wrap: anywhere; word-break: break-word; }
+  tbody td:not(.left) { white-space: nowrap; }
+  .badge, .pill { white-space: nowrap; }
+  /* 나눠진 표(오버핏 점검의 모델 묶음) 사이 구분선 */
+  table.table-cont { border-top: 1px solid #e5e5e5; }
 
   /* best 모델 행 — 연민트 바탕 + 왼쪽 민트 막대 */
   .best td { background: #effcf8 !important; font-weight: 700; color: #0a0a0a; }
@@ -180,8 +190,14 @@
   .cm-table .cm-fp, .cm-table .cm-fn { background: #fbeeee; color: #b03a3a; }
 
   /* ── 설정 표 ── */
-  .config-key { color: #5a5a5c; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; }
-  .config-val { color: #1c1c1e; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; }
+  /* 고정폭 글꼴 뒤에 한글 폰트를 둬 설정값 안의 한글(변수명 등) 도 깨지지 않게 */
+  .config-key, .config-val {
+    font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Noto Sans Mono CJK KR",
+                 "NanumGothicCoding", "D2Coding", "Noto Sans CJK KR", "NanumGothic", "Malgun Gothic", monospace;
+    font-size: 10.5px;
+  }
+  .config-key { color: #5a5a5c; }
+  .config-val { color: #1c1c1e; }
 
   /* ── 푸터 ── */
   .footer {
@@ -192,6 +208,10 @@
     color: #888888;
     text-align: center;
   }
+
+  /* ── 나란히 놓는 표 (변수 중요도 1~15위 | 16위~) ── */
+  .split-tables { display: flex; gap: 16px; padding: 12px 14px; }
+  .split-col { flex: 1; min-width: 0; }
 
   /* ── 상태 pill (본문용) ── */
   .pill.pill-ok    { background: #e6f8f2; border-color: #a6e8d5; color: #00805f; }
@@ -211,4 +231,7 @@
     h2 { display: block; }
     h2 .sec-num { display: inline-block; text-align: center; line-height: 20px; margin-right: 8px; vertical-align: middle; }
     tr, .chart-box img { break-inside: avoid; }
+    /* flex 는 PDF 에서 페이지를 넘겨 나뉘지 않아 큰 빈칸이 생기므로 인쇄 땐 위아래로 쌓는다 */
+    .split-tables { display: block; }
+    .split-col + .split-col { margin-top: 10px; }
   }
