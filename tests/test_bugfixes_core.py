@@ -269,3 +269,22 @@ def test_same_kind_ensemble_importance_keeps_raw_scale(tiny_binary_data):
         for feat, val in m.feature_importance().items():
             expected[feat] = expected.get(feat, 0.0) + val / 3
     assert ens.feature_importance() == pytest.approx(expected)  # cv_bagging 출력은 이전과 동일
+
+
+def test_imputer_works_on_pandas_without_no_silent_downcasting_option(monkeypatch):
+    """pandas 2.0/2.1 에는 future.no_silent_downcasting 옵션이 없다 (2.2 에 생김) → 옵션 없이 동작."""
+    from auto_ml.preprocessing import imputer as imputer_mod
+    from auto_ml.preprocessing.imputer import NullImputer
+
+    real_get_option = pd.get_option
+
+    def old_pandas_get_option(key, *args, **kwargs):
+        if key == "future.no_silent_downcasting":
+            raise pd._config.config.OptionError(f"No such keys(s): {key!r}")
+        return real_get_option(key, *args, **kwargs)
+
+    monkeypatch.setattr(imputer_mod.pd, "get_option", old_pandas_get_option)
+    df = pd.DataFrame({"x": [1.0, None, 3.0], "c": ["a", None, "a"]})
+    out = NullImputer(["x"], ["c"]).fit_transform(df)
+    assert out["x"].tolist() == [1.0, 2.0, 3.0]
+    assert out["c"].tolist() == ["a", "a", "a"]

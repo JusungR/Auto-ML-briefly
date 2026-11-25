@@ -97,7 +97,10 @@ def test_set_n_jobs_on_legacy_artifacts(name):
     if not path.exists() or not data.exists():
         pytest.skip("legacy artifact not present")
     df = pd.read_parquet(data).head(300)
-    base = Scorer.from_artifact(path).score(df)["score"].to_numpy()
+    try:
+        base = Scorer.from_artifact(path).score(df)["score"].to_numpy()
+    except AttributeError as exc:  # 저장소의 예시 artifact 를 만든 라이브러리 버전과 다른 환경
+        pytest.skip(f"legacy artifact not usable with installed library versions: {exc}")
     limited = Scorer.from_artifact(path, n_jobs=1)
     assert getattr(limited.model, "n_jobs", None) == 1
     np.testing.assert_allclose(limited.score(df)["score"].to_numpy(), base)
